@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+.vs/
+.idea/
+
+# Local scratch and media dumps
+out/
+*.iso
+*.bin
+*.wav
+*.ppm
+*.png
+*.mpg
+*.m2v
+!docs/**/*.png
+
+# Agent worktrees
+.claude/worktrees/
