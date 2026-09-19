@@ -56,14 +56,6 @@ jobs:
         include:
           - os: windows-latest
             rids: win-x64
-          # linux-arm64 is cross-published: .NET needs no arm64 machine to build it,
-          # only to run it, and the x64 build is the one smoke-tested here.
-          - os: ubuntu-latest
-            rids: linux-x64 linux-arm64
-          # macOS builds are published on a Mac because the SDK signs them there
-          # (ad hoc), and Apple silicon refuses to run an unsigned binary at all.
-          - os: macos-latest
-            rids: osx-arm64 osx-x64
 
     runs-on: ${{ matrix.os }}
 
