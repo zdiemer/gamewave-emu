@@ -9,7 +9,7 @@ namespace GameWave.Ui.Native;
 /// </summary>
 /// <remarks>
 /// <para>
-/// vxp.exe is built for the Windows GUI subsystem so that a double click or a game launcher
+/// gamewave.exe is built for the Windows GUI subsystem so that a double click or a game launcher
 /// opens the player and nothing else; a console program would get a console window of its
 /// own first. The price is that Windows gives a GUI program no console at all, so the
 /// command line would print nowhere. <see cref="Attach"/> puts that back by joining the
@@ -17,7 +17,7 @@ namespace GameWave.Ui.Native;
 /// </para>
 /// <para>
 /// Handles the parent redirected (a pipe, or a file) are inherited as usual and kept, so
-/// <c>vxp info disc.zip &gt; out.txt</c> and <c>| findstr</c> work; only the ones that
+/// <c>gamewave info disc.iso &gt; out.txt</c> and <c>| findstr</c> work; only the ones that
 /// would otherwise lead nowhere are pointed at the console.
 /// </para>
 /// </remarks>
