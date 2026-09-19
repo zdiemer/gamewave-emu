@@ -57,7 +57,11 @@ gamewave "Zap 21 (USA).zip"
 
 <div align="center">
 
-<img src="docs/media/games.png" alt="Frames from Game Wave discs running in gamewave" width="860">
+<img src="docs/media/games.png" alt="Frames from nine Game Wave discs running in gamewave" width="860">
+
+<em>4 Degrees · Zap 21 · Gemz<br>
+Letter Zap! · Click! · Lock 5<br>
+Rewind 2006 · VeggieTales: Veg-Out! Family Tournament · Sudoku</em>
 
 </div>
 
