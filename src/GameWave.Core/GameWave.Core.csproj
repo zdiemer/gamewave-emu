@@ -5,4 +5,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="GameWave.Core.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NLayer" Version="3.0.0" />
+  </ItemGroup>
 </Project>

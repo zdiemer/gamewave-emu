@@ -136,6 +136,17 @@ public sealed class Osd
         }
     }
 
+    public void HideAll()
+    {
+        lock (Sync)
+        {
+            foreach (var o in _overlays.Values)
+                o.Visible = false;
+            if (_sceneDepth == 0)
+                TakeSnapshot();
+        }
+    }
+
     public bool Shown
     {
         get { lock (Sync) return _shown; }

@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- A Windows GUI program, so launching it never opens a console window. It attaches to
-         the console of whatever started it, when there is one, so the command line still prints. -->
-    <OutputType Condition="$(RuntimeIdentifier.StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows')))">WinExe</OutputType>
     <RootNamespace>GameWave</RootNamespace>
     <AssemblyName>gamewave</AssemblyName>
     <Version>0.1.0</Version>
