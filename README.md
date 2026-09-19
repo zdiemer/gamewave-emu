@@ -239,7 +239,7 @@ straight away and the output follows it. In PowerShell, pipe it anywhere to wait
 ```
 gamewave info <disc>                      What the disc is and what it holds
 gamewave run  <disc> [--seconds N] [--press MS:KEY[:REMOTE],...] [--shot MS:FILE.png,...]
-                     [--monkey MS] [--log N]
+                     [--monkey MS] [--saves FILE] [--log N]
 gamewave disasm <file.zbc>                Disassemble a game program
 ```
 

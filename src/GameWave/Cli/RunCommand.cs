@@ -18,6 +18,7 @@ internal static class RunCommand
         var shots = new List<(long At, string Path)>();
         int logLevel = 3;
         int monkey = 0;
+        string? saves = null;
         int? seed = null;
         for (int i = 0; i < args.Length; i++)
         {
@@ -48,6 +49,9 @@ internal static class RunCommand
                     // Random key presses every so many milliseconds, for soak testing.
                     monkey = int.Parse(args[++i]);
                     break;
+                case "--saves":
+                    saves = args[++i];
+                    break;
                 case "--seed":
                     seed = int.Parse(args[++i]);
                     break;
@@ -65,7 +69,7 @@ internal static class RunCommand
             return 2;
         }
 
-        using var machine = new Machine(CliDisc.Open(disc), new SaveStore(null));
+        using var machine = new Machine(CliDisc.Open(disc), new SaveStore(saves));
         machine.LogLevel = logLevel;
         machine.Log = s => Console.WriteLine($"[{machine.Clock.Now,7}] {s}");
         machine.Start();

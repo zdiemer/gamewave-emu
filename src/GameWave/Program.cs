@@ -84,6 +84,8 @@ internal static class Usage
                                                     at the given times (milliseconds).
                                                     Keys: 0-9, up, down, left, right,
                                                     select, a, b, c, d, gamemenu, dvdmenu.
+                                                    --monkey MS presses random keys; --saves FILE
+                                                    keeps save memory in a file.
               gamewave disasm <file.zbc>            Disassemble a game program.
 
             SETTINGS
