@@ -144,6 +144,12 @@ public sealed class EmulationSettings
     /// <summary>Folder for the console's save memory. Empty means beside the settings file.</summary>
     public string SaveDirectory { get; set; } = string.Empty;
 
+    /// <summary>Folder zipped discs are unpacked into. Empty means the local application data folder.</summary>
+    public string UnpackDirectory { get; set; } = string.Empty;
+
+    /// <summary>How many unpacked discs to keep, most recently played first. Each is about 4 GB.</summary>
+    public int UnpackedDiscsKept { get; set; } = 3;
+
     /// <summary>How much of a game's own logging to show on the console, 0 (none) to 5 (debug).</summary>
     public int GameLogLevel { get; set; } = 1;
 }

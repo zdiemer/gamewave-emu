@@ -192,23 +192,101 @@ public sealed unsafe class PlayerWindow : IDisposable
     /// </summary>
     private void LoadDisc(string path)
     {
+        if (_unpack is not null)
+        {
+            _menu.Toast("Still unpacking the last disc", 3);
+            return;
+        }
+
+        // A zipped disc is unpacked once, in the background, with progress on screen.
+        if (path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && File.Exists(path)
+            && !ZipDisc.IsUnpacked(path, UnpackDirectory()))
+        {
+            StartUnpack(path);
+            return;
+        }
+
         IDisc disc;
+        try
+        {
+            disc = DiscLoader.Open(path, UnpackDirectory(), _settings.Emulation.UnpackedDiscsKept);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            FailLoad(path, ex);
+            return;
+        }
+        Mount(disc, path);
+    }
+
+    private string UnpackDirectory()
+        => string.IsNullOrWhiteSpace(_settings.Emulation.UnpackDirectory) ? DiscLoader.DefaultCacheDirectory : _settings.Emulation.UnpackDirectory;
+
+    private sealed class UnpackJob
+    {
+        public required string Path { get; init; }
+        public readonly CancellationTokenSource Cancel = new();
+        public double Progress;
+        public Task<IDisc>? Task;
+    }
+
+    private UnpackJob? _unpack;
+
+    private void StartUnpack(string path)
+    {
+        var job = new UnpackJob { Path = path };
+        var cache = UnpackDirectory();
+        int keep = Math.Max(1, _settings.Emulation.UnpackedDiscsKept);
+        job.Task = Task.Run(() => DiscLoader.Open(path, cache, keep, new SyncProgress(p => job.Progress = p), job.Cancel.Token));
+        _unpack = job;
+        _loadError = null;
+    }
+
+    private sealed class SyncProgress(Action<double> report) : IProgress<double>
+    {
+        public void Report(double value) => report(value);
+    }
+
+    /// <summary>Mounts an unpacked disc once its job is done.</summary>
+    private void PollUnpack()
+    {
+        if (_unpack is not { Task.IsCompleted: true } job) return;
+        _unpack = null;
+        if (job.Task.IsCompletedSuccessfully)
+        {
+            Mount(job.Task.Result, job.Path);
+            return;
+        }
+        if (job.Cancel.IsCancellationRequested)
+        {
+            _menu.Toast("Unpacking cancelled", 3);
+            return;
+        }
+        FailLoad(job.Path, job.Task.Exception?.GetBaseException() ?? new IOException("unpacking failed"));
+    }
+
+    private void FailLoad(string path, Exception ex)
+    {
+        _loadError = $"Could not open {Path.GetFileName(path.TrimEnd('\\', '/'))}: {ex.Message}";
+        if (_machine is not null || _menu.IsOpen) _menu.Toast(_loadError, 6);
+        if (!File.Exists(path) && !Directory.Exists(path) && _settings.RecentDiscs.Remove(path))
+        {
+            _menuBarStale = true;
+            SaveSettings();
+        }
+    }
+
+    private void Mount(IDisc disc, string path)
+    {
         Machine machine;
         try
         {
-            disc = DiscLoader.Open(path);
             machine = new Machine(disc, new SaveStore(SaveFilePath()));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            _loadError = $"Could not open {Path.GetFileName(path.TrimEnd('\\', '/'))}: {ex.Message}";
-            if (_machine is not null || _menu.IsOpen) _menu.Toast(_loadError, 6);
-
-            if (!File.Exists(path) && !Directory.Exists(path) && _settings.RecentDiscs.Remove(path))
-            {
-                _menuBarStale = true;
-                SaveSettings();
-            }
+            disc.Dispose();
+            FailLoad(path, ex);
             return;
         }
 
@@ -535,6 +613,7 @@ public sealed unsafe class PlayerWindow : IDisposable
             PumpEvents();
             RepeatHeldDirections();
             RunDeferred();
+            PollUnpack();
             UpdatePause();
             Render();
 
@@ -800,6 +879,11 @@ public sealed unsafe class PlayerWindow : IDisposable
                 break;
 
             case InputAction.ToggleMenu:
+                if (_unpack is { } job)
+                {
+                    job.Cancel.Cancel();
+                    break;
+                }
                 OpenMenu(Menus.Root(BuildContext()));
                 break;
 
@@ -1081,6 +1165,15 @@ public sealed unsafe class PlayerWindow : IDisposable
 
         if (_canvas.Resize(windowWidth, windowHeight)) RecreateOverlayTexture();
 
+        if (_unpack is { } unpacking)
+        {
+            _canvas.Clear();
+            if (_machine is not null) _canvas.Dim(160);
+            DrawUnpacking(unpacking, windowWidth, windowHeight);
+            UploadOverlay();
+            return;
+        }
+
         if (_machine is null)
         {
             _canvas.Clear();
@@ -1115,6 +1208,22 @@ public sealed unsafe class PlayerWindow : IDisposable
 
         var destination = new Rectangle<int>(0, 0, _canvas.Width, _canvas.Height);
         _sdl.RenderCopy(_renderer, _overlayTexture, (Rectangle<int>*)null, ref destination);
+    }
+
+    private void DrawUnpacking(UnpackJob job, int windowWidth, int windowHeight)
+    {
+        var scale = _settings.Interface.FontScale > 0 ? _settings.Interface.FontScale + 1 : Math.Clamp(windowWidth / 320, 1, 4);
+        var gap = BitmapFont.LineAdvance * scale;
+        var y = windowHeight / 2 - gap * 2;
+        var name = DiscFiles.DisplayName(job.Path);
+        _canvas.TextCentred(windowWidth / 2, y, BitmapFont.Fit($"Unpacking {name}", windowWidth - 16 * scale, scale), scale, Rgba.Accent);
+        y += gap * 2;
+        var barWidth = Math.Min(windowWidth - 32 * scale, 200 * scale);
+        var barX = (windowWidth - barWidth) / 2;
+        _canvas.Outline(barX, y, barWidth, 6 * scale, Rgba.Grey, Math.Max(1, scale / 2));
+        _canvas.Fill(barX + scale, y + scale, (int)((barWidth - 2 * scale) * Math.Clamp(job.Progress, 0, 1)), 4 * scale, Rgba.Accent);
+        y += gap * 2;
+        _canvas.TextCentred(windowWidth / 2, y, $"{job.Progress * 100:0}%  (first time only; Escape cancels)", scale, Rgba.Grey);
     }
 
     /// <summary>The screen with no disc in: how to put one in, and why the last one would not open.</summary>
@@ -1214,6 +1323,7 @@ public sealed unsafe class PlayerWindow : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _unpack?.Cancel.Cancel();
 
         _menu.Changed -= ApplySettings;
 

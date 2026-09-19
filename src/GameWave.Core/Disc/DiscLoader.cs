@@ -2,8 +2,15 @@ namespace GameWave.Disc;
 
 public static class DiscLoader
 {
-    /// <summary>Opens a disc image (.iso) or a folder holding a disc's files.</summary>
-    public static IDisc Open(string path)
+    /// <summary>Where zipped discs are unpacked unless told otherwise.</summary>
+    public static string DefaultCacheDirectory
+        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "gamewave", "unpacked");
+
+    /// <summary>
+    /// Opens a disc image (.iso), a zip holding one (unpacked into <paramref name="cacheDirectory"/>
+    /// first, keeping the <paramref name="keep"/> most recent), or a folder holding a disc's files.
+    /// </summary>
+    public static IDisc Open(string path, string? cacheDirectory = null, int keep = 3, IProgress<double>? progress = null, CancellationToken cancel = default)
     {
         if (Directory.Exists(path))
             return new FolderDisc(path);
@@ -11,7 +18,10 @@ public static class DiscLoader
             throw new FileNotFoundException($"{path} does not exist");
         string ext = Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".zip")
-            return ZipDisc.Open(path);
+        {
+            var image = ZipDisc.Unpack(path, cacheDirectory ?? DefaultCacheDirectory, keep, progress, cancel);
+            return new LabelledDisc(UdfDisc.Open(image), Path.GetFileNameWithoutExtension(path));
+        }
         using (var probe = File.OpenRead(path))
         {
             if (!UdfDisc.Probe(probe))

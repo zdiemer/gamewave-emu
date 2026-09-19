@@ -56,7 +56,7 @@ internal static class RunCommand
             return 2;
         }
 
-        using var machine = new Machine(DiscLoader.Open(disc), new SaveStore(null));
+        using var machine = new Machine(CliDisc.Open(disc), new SaveStore(null));
         machine.LogLevel = logLevel;
         machine.Log = s => Console.WriteLine($"[{machine.Clock.Now,7}] {s}");
         machine.Start();

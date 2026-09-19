@@ -11,7 +11,7 @@ internal static class InfoCommand
     {
         if (args.Length == 0)
             throw new ArgumentException("usage: gamewave info <disc>");
-        using var disc = DiscLoader.Open(args[0]);
+        using var disc = CliDisc.Open(args[0]);
         var diz = disc.Find("/gamewave.diz") ?? throw new InvalidDataException("this is not a Game Wave disc (there is no gamewave.diz)");
         var info = GameInfo.Parse(System.Text.Encoding.Latin1.GetString(diz.ReadAll()));
 
