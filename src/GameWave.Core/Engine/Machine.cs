@@ -206,11 +206,11 @@ public sealed partial class Machine : IDisposable
     /// <summary>Throws out of the game thread when it has been asked to stop.</summary>
     internal void CheckStop()
     {
-        if (_stopRequested || _resetRequested)
+        if (_stopRequested || _resetRequested || _trayRequested)
             throw new MachineStoppedException();
     }
 
-    internal bool StopPending => _stopRequested || _resetRequested;
+    internal bool StopPending => _stopRequested || _resetRequested || _trayRequested;
 
     /// <summary>Shows the "insert disc" screen and stops the game until a disc goes in.</summary>
     internal void OpenTray()
@@ -223,6 +223,22 @@ public sealed partial class Machine : IDisposable
             Video.ShowStill(still);
         _trayRequested = true;
         throw new MachineStoppedException();
+    }
+
+    /// <summary>Opens the tray from outside the game, as the console's eject button does.</summary>
+    public void OpenTrayFromHost()
+    {
+        if (State != MachineState.Running || _thread is null)
+            return;
+        Video.StopMovie(false);
+        var still = EngineResources.Get("insert_disc.m2v") is { } d ? DecodeStill(d) : null;
+        if (still is null)
+            Video.Clear();
+        else
+            Video.ShowStill(still);
+        _trayRequested = true;
+        Clock.Paused = false;
+        _thread.Join(3000);
     }
 
     /// <summary>Closes the tray on the disc already in it, which boots it again.</summary>

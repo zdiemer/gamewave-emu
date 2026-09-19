@@ -666,7 +666,12 @@ public sealed partial class Machine
             ("bnot", a => a.Return(~a.Int(1))),
             ("lshift", a => a.Return(a.Int(1) << (a.Int(2) & 31))),
             ("rshift", a => a.Return((int)((uint)a.Int(1) >> (a.Int(2) & 31)))),
-            ("arshift", a => a.Return(a.Int(1) >> (a.Int(2) & 31))));
+            ("arshift", a => a.Return(a.Int(1) >> (a.Int(2) & 31))),
+            ("mod", a =>
+            {
+                int d = a.Int(2);
+                return a.Return(d == 0 ? 0 : a.Int(1) % d);
+            }));
 
         L.RegisterModule("log",
             ("Log", a =>
@@ -678,6 +683,8 @@ public sealed partial class Machine
             }),
             ("SetLevel", a => 0),
             ("SetModule", a => 0),
+            ("DebugSetState", a => 0),
+            ("PrintMemStats", a => 0),
             ("PrintRaw", a =>
             {
                 if (LogLevel >= 3)
@@ -724,7 +731,7 @@ public sealed partial class Machine
             ("GetLineTraceMode", a => a.Return(0)));
 
         L.RegisterModule("spi", ("Init", a => 0), ("Open", a => 0), ("Close", a => 0), ("Write", a => 0), ("Read", a => a.Return(0)));
-        L.RegisterModule("uart", ("Open", a => 0), ("Close", a => 0), ("Write", a => 0), ("Read", a => a.Return(0)));
+        L.RegisterModule("uart", ("Open", a => 0), ("Close", a => 0), ("Write", a => 0), ("Read", a => a.Return(0)), ("TxD", a => 0), ("RxD", a => a.Return(0)));
         L.RegisterModule("exp_int", ("Configure", a => 0), ("Close", a => 0), ("Test", a => a.Return(0)));
     }
 
