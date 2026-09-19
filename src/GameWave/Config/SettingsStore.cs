@@ -40,7 +40,7 @@ public static class SettingsStore
     };
 
     /// <summary>
-    /// Directory holding the settings file: <c>%APPDATA%\vxp</c> on Windows and
+    /// Directory holding the settings file: <c>%APPDATA%\gamewave</c> on Windows and
     /// <c>$XDG_CONFIG_HOME/gamewave</c> (or <c>~/.config/gamewave</c>) elsewhere. Override with
     /// the <c>GAMEWAVE_CONFIG_DIR</c> environment variable.
     /// </summary>
