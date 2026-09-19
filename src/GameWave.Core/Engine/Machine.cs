@@ -84,11 +84,36 @@ public sealed partial class Machine : IDisposable
     {
         if (_thread is not null && _thread.IsAlive)
             return;
+        RequestFineTimer();
         _stopRequested = false;
         State = MachineState.Running;
         CrashMessage = null;
         _thread = new Thread(GameThread) { IsBackground = true, Name = "Game Wave game" };
         _thread.Start();
+    }
+
+    [System.Runtime.InteropServices.DllImport("winmm.dll")]
+    static extern uint timeBeginPeriod(uint period);
+
+    static bool _fineTimer;
+
+    /// <summary>
+    /// Asks Windows for 1 ms timer resolution: the games sleep and poll in steps of a few
+    /// milliseconds, which the default 15.6 ms tick would stretch. SDL asks for the same when
+    /// a window opens; a headless run has no SDL.
+    /// </summary>
+    static void RequestFineTimer()
+    {
+        if (_fineTimer || !OperatingSystem.IsWindows())
+            return;
+        _fineTimer = true;
+        try
+        {
+            timeBeginPeriod(1);
+        }
+        catch (DllNotFoundException)
+        {
+        }
     }
 
     public void Stop()
