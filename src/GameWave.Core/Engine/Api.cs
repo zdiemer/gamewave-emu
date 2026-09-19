@@ -795,7 +795,10 @@ public sealed partial class Machine
                 f.Stream.Position = Math.Clamp(offset, 0, f.Stream.Length);
                 var buf = new byte[Math.Max(0, count)];
                 int n = f.Stream.ReadAtLeast(buf, buf.Length, false);
-                return a.Return(Encoding.Latin1.GetString(buf, 0, n));
+                if (n < buf.Length)
+                    Array.Resize(ref buf, n);
+                // A pointer buffer, read back with the pointer module.
+                return a.Return(LuaValue.Userdata(new LuaUserdata(buf)));
             }),
             ("ReadLine", a =>
             {
@@ -866,9 +869,10 @@ public sealed partial class Machine
             ("ToStringRange", a =>
             {
                 var b = Bytes(a, 1);
+                // From an offset up to, not including, an end offset.
                 int start = Math.Clamp(a.Int(2), 0, b.Length);
-                int len = Math.Clamp(a.Int(3), 0, b.Length - start);
-                return a.Return(Encoding.Latin1.GetString(b, start, len));
+                int end = Math.Clamp(a.Int(3), start, b.Length);
+                return a.Return(Encoding.Latin1.GetString(b, start, end - start));
             }),
             ("FromString", a => a.Return(LuaValue.Userdata(new LuaUserdata(Encoding.Latin1.GetBytes(a.Str(1)))))),
             ("GetIndex", a =>
