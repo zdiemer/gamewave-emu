@@ -34,6 +34,9 @@ public sealed class InputMap
         Bind(InputAction.ToggleTray, Binding.Key(Key("E"), KeyModifiers.Control));
         Bind(InputAction.OpenDisc, Binding.Key(Key("O"), KeyModifiers.Control));
 
+        for (int i = 0; i < 6; i++)
+            Bind(InputAction.KeyboardRed + i, Binding.Key(Key((i + 1).ToString()), KeyModifiers.Control));
+
         Bind(InputAction.VolumeUp, Binding.Key(Key("Equals")), Binding.Key(Key("NumpadPlus")));
         Bind(InputAction.VolumeDown, Binding.Key(Key("Minus")), Binding.Key(Key("NumpadMinus")));
         Bind(InputAction.ToggleMute, Binding.Key(Key("M"), KeyModifiers.Control));

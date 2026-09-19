@@ -14,6 +14,7 @@ public sealed class MoviePlayer : IDisposable
     readonly object _gate = new();
 
     DiscFile? _file;
+    DiscFile? _playingFile;
     bool _loop;
     Thread? _thread;
     volatile bool _cancel;
@@ -58,9 +59,14 @@ public sealed class MoviePlayer : IDisposable
 
     public void Play()
     {
+        // Games call Play in their input loops while a movie loops; asking for the movie that
+        // is already playing changes nothing.
+        if (_playing && !_paused && _file is not null && ReferenceEquals(_file, _playingFile))
+            return;
         Stop(true);
         if (_file is null)
             return;
+        _playingFile = _file;
         lock (_gate)
         {
             _frames.Clear();

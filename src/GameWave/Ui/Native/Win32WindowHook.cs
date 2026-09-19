@@ -9,7 +9,7 @@ namespace GameWave.Ui.Native;
 /// <para>
 /// Menu messages are only useful if they are seen the moment they arrive. An open Windows
 /// menu runs its own modal message loop, so anything queued for the application's own
-/// loop is not read until the menu has closed again — by which time it is too late to
+/// loop is not read until the menu has closed again, by which time it is too late to
 /// keep the picture and sound going, and too late to fill a popup in before it is drawn.
 /// </para>
 /// <para>

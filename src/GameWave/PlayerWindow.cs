@@ -59,6 +59,9 @@ public sealed unsafe class PlayerWindow : IDisposable
     private bool _pausedByMenu;
     private bool _pausedByFocus;
 
+    /// <summary>The remote the keyboard's red-remote keys press, switched for hot-seat play.</summary>
+    private Remote _keyboardRemote = Remote.Red;
+
     private nint _nativeWindow;
     private Win32MenuBar? _menuBar;
     private Win32WindowHook? _messageHook;
@@ -851,7 +854,13 @@ public sealed unsafe class PlayerWindow : IDisposable
             // Every remote key the control is bound to is pressed, so one key can drive two
             // remotes if the player wants it to.
             foreach (var action in actions.Where(InputActions.IsRemoteKey))
-                PressRemote(action);
+            {
+                // The keyboard's red keys press whichever remote it is playing as.
+                if (controller is null && InputActions.RemoteOf(action) == Remote.Red && _keyboardRemote != Remote.Red)
+                    PressRemote(InputActions.For(_keyboardRemote, InputActions.KeyOf(action)));
+                else
+                    PressRemote(action);
+            }
             return;
         }
 
@@ -900,6 +909,11 @@ public sealed unsafe class PlayerWindow : IDisposable
 
             case InputAction.ToggleTray:
                 ToggleTray();
+                break;
+
+            case >= InputAction.KeyboardRed and <= InputAction.KeyboardOrange:
+                _keyboardRemote = (Remote)(action - InputAction.KeyboardRed + 1);
+                _menu.Toast($"Keyboard plays as {_keyboardRemote}");
                 break;
 
             case InputAction.VolumeUp:
@@ -1189,7 +1203,7 @@ public sealed unsafe class PlayerWindow : IDisposable
         _canvas.Clear();
         if (showStatus)
         {
-            var controllers = string.Join("  ", _controllers.Select((c, i) => $"Pad {i + 1}: {_settings.RemoteForController(i)}"));
+            var controllers = string.Join("  ", _controllers.Select((c, i) => $"Pad {i + 1}: {_settings.RemoteForController(i)}").Prepend($"Keyboard: {_keyboardRemote}"));
             _overlay.Draw(_canvas, scale, _machine, _settings,
                 new HostStatus(_settings.Audio.Volume, _settings.Audio.Muted, _measuredFps, controllers));
         }

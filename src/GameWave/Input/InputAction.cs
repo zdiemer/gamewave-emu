@@ -20,6 +20,24 @@ public enum InputAction
     /// <summary>Choose a disc to put in the console.</summary>
     OpenDisc,
 
+    /// <summary>Make the keyboard play as the red remote.</summary>
+    KeyboardRed,
+
+    /// <summary>Make the keyboard play as the yellow remote.</summary>
+    KeyboardYellow,
+
+    /// <summary>Make the keyboard play as the blue remote.</summary>
+    KeyboardBlue,
+
+    /// <summary>Make the keyboard play as the green remote.</summary>
+    KeyboardGreen,
+
+    /// <summary>Make the keyboard play as the purple remote.</summary>
+    KeyboardPurple,
+
+    /// <summary>Make the keyboard play as the orange remote.</summary>
+    KeyboardOrange,
+
     /// <summary>Raise the volume.</summary>
     VolumeUp,
 
@@ -241,6 +259,13 @@ public static class InputActions
         [InputAction.Reset] = ("Reset", ActionCategory.Console),
         [InputAction.ToggleTray] = ("Open / close tray", ActionCategory.Console),
         [InputAction.OpenDisc] = ("Open disc", ActionCategory.Console),
+
+        [InputAction.KeyboardRed] = ("Keyboard plays red", ActionCategory.Console),
+        [InputAction.KeyboardYellow] = ("Keyboard plays yellow", ActionCategory.Console),
+        [InputAction.KeyboardBlue] = ("Keyboard plays blue", ActionCategory.Console),
+        [InputAction.KeyboardGreen] = ("Keyboard plays green", ActionCategory.Console),
+        [InputAction.KeyboardPurple] = ("Keyboard plays purple", ActionCategory.Console),
+        [InputAction.KeyboardOrange] = ("Keyboard plays orange", ActionCategory.Console),
 
         [InputAction.VolumeUp] = ("Volume up", ActionCategory.Audio),
         [InputAction.VolumeDown] = ("Volume down", ActionCategory.Audio),
