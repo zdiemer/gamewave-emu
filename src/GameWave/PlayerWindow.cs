@@ -679,6 +679,7 @@ public sealed unsafe class PlayerWindow : IDisposable
     /// <summary>Pauses the console for the player, the menu, or the window going to the background.</summary>
     private void UpdatePause()
     {
+        if (!_menu.IsOpen) _confirmingQuit = false;
         if (_machine is null) return;
         _pausedByMenu = _menu.IsOpen && _settings.Emulation.PauseInMenu;
         _pausedByFocus = !_focused && _settings.Emulation.PauseInBackground;
@@ -1042,7 +1043,28 @@ public sealed unsafe class PlayerWindow : IDisposable
 
     private void OpenMenu(MenuPage page) => _menu.Push(page);
 
-    private void RequestQuit() => _running = false;
+    private void RequestQuit()
+    {
+        if (!_settings.Interface.ConfirmQuit || _confirmingQuit)
+        {
+            _running = false;
+            return;
+        }
+        _confirmingQuit = true;
+        _menu.Close();
+        OpenMenu(new MenuPage
+        {
+            Title = "Quit?",
+            Subtitle = _machine?.Title,
+            Items =
+            [
+                new MenuAction { Label = "Quit", OnActivate = () => _running = false },
+                new MenuAction { Label = "Keep playing", OnActivate = () => { _confirmingQuit = false; _menu.Close(); } },
+            ],
+        });
+    }
+
+    private bool _confirmingQuit;
 
     private void SetFullscreen(bool on)
     {

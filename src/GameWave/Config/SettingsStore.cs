@@ -178,6 +178,20 @@ public static class SettingsStore
             throw new ArgumentException($"'{entry.Path}' takes a whole number, not '{value}'.");
         }
 
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) && type.GetGenericArguments()[0].IsEnum)
+        {
+            // A comma-separated list, such as the remotes controllers play as.
+            var itemType = type.GetGenericArguments()[0];
+            var list = (System.Collections.IList)Activator.CreateInstance(type)!;
+            foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!Enum.TryParse(itemType, part, ignoreCase: true, out var item) || item is null)
+                    throw new ArgumentException($"'{entry.Path}' takes a list of: {string.Join(", ", Enum.GetNames(itemType))}.");
+                list.Add(item);
+            }
+            return list;
+        }
+
         if (type == typeof(double))
         {
             if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) return number;
@@ -194,6 +208,7 @@ public static class SettingsStore
         bool flag => flag ? "true" : "false",
         double number => number.ToString("0.####", CultureInfo.InvariantCulture),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+        System.Collections.IList list => string.Join(",", list.Cast<object>()),
         _ => value.ToString() ?? string.Empty,
     };
 
