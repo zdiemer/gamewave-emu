@@ -9,9 +9,11 @@ public sealed record TextStyle
     public int HAlign { get; init; }
     /// <summary>0 top, 1 middle, 2 bottom.</summary>
     public int VAlign { get; init; }
-    /// <summary>Extra pixels between characters (the scripts use small negative values to tighten).</summary>
+    /// <summary>Extra pixels between characters.</summary>
     public int Tracking { get; init; }
-    /// <summary>Extra pixels between lines.</summary>
+    /// <summary>Extra pixels added to each space between words.</summary>
+    public int WordSpacing { get; init; }
+    /// <summary>Extra pixels between lines (negative values tighten).</summary>
     public int Leading { get; init; }
     public bool UseColor { get; init; }
     public byte Y { get; init; } = 235;
@@ -26,7 +28,7 @@ public static class TextRenderer
     public static Texture RenderSimple(Font font, string text)
     {
         var lines = text.Replace("\r", "").Split('\n');
-        int w = Math.Max(1, lines.Max(l => font.Measure(l)));
+        int w = Math.Max(1, lines.Max(l => font.Measure(l, 0, 0)));
         int h = Math.Max(1, lines.Length * font.LineHeight);
         return Render(font, text, new TextStyle { Width = w, Height = h });
     }
@@ -34,7 +36,7 @@ public static class TextRenderer
     public static Texture Render(Font font, string text, TextStyle style)
     {
         var tex = new Texture(style.Width, style.Height, "text");
-        var lines = Wrap(font, text.Replace("\r", ""), style.Width, style.Tracking);
+        var lines = Wrap(font, text.Replace("\r", ""), style.Width, style.Tracking, style.WordSpacing);
         int lineStep = font.LineHeight + style.Leading;
         int blockHeight = lines.Count == 0 ? 0 : (lines.Count - 1) * lineStep + font.LineHeight;
         int y = style.VAlign switch
@@ -46,26 +48,26 @@ public static class TextRenderer
         uint tint = style.UseColor ? Color.YuvToRgb(style.Y, style.Cb, style.Cr) & 0xFFFFFF : 0;
         foreach (var line in lines)
         {
-            int lw = font.Measure(line, style.Tracking);
+            int lw = font.Measure(line, style.Tracking, style.WordSpacing);
             int x = style.HAlign switch
             {
                 1 => (style.Width - lw) / 2,
                 2 => style.Width - lw,
                 _ => 0,
             };
-            DrawLine(tex, font, line, x, y, style.Tracking, style.UseColor, tint);
+            DrawLine(tex, font, line, x, y, style.Tracking, style.WordSpacing, style.UseColor, tint);
             y += lineStep;
         }
         tex.Touch();
         return tex;
     }
 
-    static List<string> Wrap(Font font, string text, int width, int tracking)
+    static List<string> Wrap(Font font, string text, int width, int tracking, int wordSpacing)
     {
         var result = new List<string>();
         foreach (var para in text.Split('\n'))
         {
-            if (font.Measure(para, tracking) <= width)
+            if (font.Measure(para, tracking, wordSpacing) <= width)
             {
                 result.Add(para);
                 continue;
@@ -75,7 +77,7 @@ public static class TextRenderer
             foreach (var word in words)
             {
                 string candidate = current.Length == 0 ? word : current + " " + word;
-                if (current.Length > 0 && font.Measure(candidate, tracking) > width)
+                if (current.Length > 0 && font.Measure(candidate, tracking, wordSpacing) > width)
                 {
                     result.Add(current);
                     current = word;
@@ -90,7 +92,7 @@ public static class TextRenderer
         return result;
     }
 
-    static void DrawLine(Texture dst, Font font, string line, int x, int y, int tracking, bool useColor, uint tint)
+    static void DrawLine(Texture dst, Font font, string line, int x, int y, int tracking, int wordSpacing, bool useColor, uint tint)
     {
         var sheet = font.Sheet;
         if (sheet is null)
@@ -101,7 +103,7 @@ public static class TextRenderer
             if (!font.TryGetGlyph(c, out var g) && !font.TryGetGlyph('?', out g))
                 continue;
             DrawGlyph(dst, sheet, g, x, y, useColor, tint);
-            x += g.Advance + tracking;
+            x += g.Advance + tracking + (c == ' ' ? wordSpacing : 0);
             if (i + 1 < line.Length)
                 x += font.Kerning(c, line[i + 1]);
         }

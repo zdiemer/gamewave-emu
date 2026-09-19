@@ -74,14 +74,14 @@ public sealed class Font
     public int Kerning(char a, char b) => _kerning.TryGetValue((a, b), out int k) ? k : 0;
 
     /// <summary>The advance of a run of text, including kerning and extra tracking.</summary>
-    public int Measure(ReadOnlySpan<char> text, int tracking = 0)
+    public int Measure(ReadOnlySpan<char> text, int tracking = 0, int wordSpacing = 0)
     {
         int w = 0;
         for (int i = 0; i < text.Length; i++)
         {
             if (!TryGetGlyph(text[i], out var g) && !TryGetGlyph('?', out g))
                 continue;
-            w += g.Advance + tracking;
+            w += g.Advance + tracking + (text[i] == ' ' ? wordSpacing : 0);
             if (i + 1 < text.Length)
                 w += Kerning(text[i], text[i + 1]);
         }

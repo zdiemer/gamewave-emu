@@ -356,8 +356,10 @@ public sealed partial class Machine
                     Height = Math.Max(1, a.Int(4)),
                     HAlign = a.OptInt(5, 0),
                     VAlign = a.OptInt(6, 0),
-                    Tracking = (sbyte)a.OptInt(7, 0),
-                    Leading = (sbyte)a.OptInt(8, 0),
+                    // The three signed bytes: line spacing, word spacing, character spacing.
+                    Leading = (sbyte)a.OptInt(7, 0),
+                    WordSpacing = (sbyte)a.OptInt(8, 0),
+                    Tracking = (sbyte)a.OptInt(9, 0),
                     UseColor = a.OptInt(10, 0) != 0,
                     Y = (byte)a.OptInt(11, 235),
                     Cb = (byte)a.OptInt(12, 128),

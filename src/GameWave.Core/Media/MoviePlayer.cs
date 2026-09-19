@@ -43,6 +43,9 @@ public sealed class MoviePlayer : IDisposable
     public bool Load(DiscFile? file)
     {
         Stop(true);
+        // Loading clears the loop flag, as the engine does: a looping menu movie must not
+        // make the next movie loop too.
+        _loop = false;
         _file = file;
         return file is not null;
     }
