@@ -17,6 +17,8 @@ internal static class RunCommand
         var presses = new List<(long At, RemoteKey Key, Remote Remote)>();
         var shots = new List<(long At, string Path)>();
         int logLevel = 3;
+        int monkey = 0;
+        int? seed = null;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -42,6 +44,13 @@ internal static class RunCommand
                         shots.Add((long.Parse(spec[..c]), spec[(c + 1)..]));
                     }
                     break;
+                case "--monkey":
+                    // Random key presses every so many milliseconds, for soak testing.
+                    monkey = int.Parse(args[++i]);
+                    break;
+                case "--seed":
+                    seed = int.Parse(args[++i]);
+                    break;
                 case "--log":
                     logLevel = int.Parse(args[++i]);
                     break;
@@ -65,15 +74,30 @@ internal static class RunCommand
         presses.Sort((a, b) => a.At.CompareTo(b.At));
         shots.Sort((a, b) => a.At.CompareTo(b.At));
         int pi = 0, si = 0;
+        var random = seed is { } s0 ? new Random(s0) : new Random();
+        long nextMonkey = 5000;
         long end = (long)(seconds * 1000);
-        while (machine.Clock.Now < end && machine.State == MachineState.Running)
+        while (machine.Clock.Now < end && machine.State is MachineState.Running or MachineState.TrayOpen)
         {
+            if (machine.State == MachineState.TrayOpen)
+            {
+                Console.WriteLine($"[{machine.Clock.Now,7}] (tray opened; closing it)");
+                machine.CloseTray();
+            }
             long now = machine.Clock.Now;
             while (pi < presses.Count && presses[pi].At <= now)
             {
                 machine.Input.Push(presses[pi].Key, presses[pi].Remote, now);
                 Console.WriteLine($"[{now,7}] (pressed {presses[pi].Key} on {presses[pi].Remote})");
                 pi++;
+            }
+            if (monkey > 0 && now >= nextMonkey)
+            {
+                nextMonkey = now + monkey / 2 + random.Next(monkey);
+                var key = (RemoteKey)random.Next(0, 21);
+                // Mostly the red remote, sometimes another player.
+                var remote = random.Next(4) == 0 ? (Remote)random.Next(1, 7) : Remote.Red;
+                machine.Input.Push(key, remote, now);
             }
             machine.RenderFrame(frame);
             while (si < shots.Count && shots[si].At <= now)
