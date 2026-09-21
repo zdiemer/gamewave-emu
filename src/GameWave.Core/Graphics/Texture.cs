@@ -27,6 +27,14 @@ public sealed class Texture
 
     public void Touch() => Version++;
 
+    internal Texture Clone()
+    {
+        var copy = new Texture(Width, Height, Name) { AlphaLevel = AlphaLevel };
+        Pixels.CopyTo(copy.Pixels, 0);
+        copy.Version = Version;
+        return copy;
+    }
+
     /// <summary>
     /// Decodes a <c>.zbm</c> image. The 48-byte little-endian header holds 1, 1, the pixel
     /// format (4 for 16-bit A4Y6U3V3, 100 for 32-bit AYUV), bytes per pixel, width, height,

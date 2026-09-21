@@ -8,6 +8,20 @@ namespace GameWave.Graphics;
 /// </summary>
 public sealed class Osd
 {
+    internal sealed class State
+    {
+        public required Dictionary<int, Texture> Textures { get; init; }
+        public required List<Texture> DetachedTextures { get; init; }
+        public required Dictionary<int, Overlay> Overlays { get; init; }
+        public required int NextTextureId { get; init; }
+        public required int NextOverlayId { get; init; }
+        public required int SceneDepth { get; init; }
+        public required bool Shown { get; init; }
+        public required DrawState[] Snapshot { get; init; }
+        public required bool SnapshotShown { get; init; }
+    }
+
+    internal readonly record struct DrawState(Texture Texture, int X, int Y, float Opacity);
     public const int Width = 720;
     public const int Height = 480;
 
@@ -38,6 +52,65 @@ public sealed class Osd
             _shown = true;
             _snapshot = [];
             _snapshotShown = true;
+        }
+    }
+
+    internal State CaptureState()
+    {
+        lock (Sync)
+        {
+            var textures = _textures.ToDictionary(pair => pair.Key, pair => pair.Value.Clone());
+            var byObject = new Dictionary<Texture, Texture>(ReferenceEqualityComparer.Instance);
+            foreach (var (id, texture) in _textures)
+                byObject[texture] = textures[id];
+            var detached = new List<Texture>();
+            foreach (var texture in _overlays.Values.SelectMany(overlay => overlay.Frames)
+                         .Concat(_snapshot.Select(item => item.Texture)))
+            {
+                if (byObject.ContainsKey(texture)) continue;
+                var copy = texture.Clone();
+                byObject[texture] = copy;
+                detached.Add(copy);
+            }
+            var overlays = _overlays.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(byObject));
+            return new State
+            {
+                Textures = textures,
+                DetachedTextures = detached,
+                Overlays = overlays,
+                NextTextureId = _nextTextureId,
+                NextOverlayId = _nextOverlayId,
+                SceneDepth = _sceneDepth,
+                Shown = _shown,
+                Snapshot = _snapshot.Select(item => new DrawState(byObject[item.Texture], item.X, item.Y, item.Opacity)).ToArray(),
+                SnapshotShown = _snapshotShown,
+            };
+        }
+    }
+
+    internal void RestoreState(State state)
+    {
+        lock (Sync)
+        {
+            _textures.Clear();
+            var byObject = new Dictionary<Texture, Texture>(ReferenceEqualityComparer.Instance);
+            foreach (var (id, texture) in state.Textures)
+            {
+                var copy = texture.Clone();
+                _textures[id] = copy;
+                byObject[texture] = copy;
+            }
+            foreach (var texture in state.DetachedTextures)
+                byObject[texture] = texture.Clone();
+            _overlays.Clear();
+            foreach (var (id, overlay) in state.Overlays)
+                _overlays[id] = overlay.Clone(byObject);
+            _nextTextureId = state.NextTextureId;
+            _nextOverlayId = state.NextOverlayId;
+            _sceneDepth = state.SceneDepth;
+            _shown = state.Shown;
+            _snapshot = state.Snapshot.Select(item => new DrawItem(byObject[item.Texture], item.X, item.Y, item.Opacity)).ToArray();
+            _snapshotShown = state.SnapshotShown;
         }
     }
 

@@ -62,15 +62,20 @@ public sealed class LuaNative : LuaFunction
 {
     public readonly LuaNativeFn Fn;
     readonly string _name;
+    readonly Func<Func<LuaThread, LuaThread>, LuaNative>? _snapshotClone;
     public LuaTable? Env;
 
-    public LuaNative(string name, LuaNativeFn fn)
+    public LuaNative(string name, LuaNativeFn fn, Func<Func<LuaThread, LuaThread>, LuaNative>? snapshotClone = null)
     {
         _name = name;
         Fn = fn;
+        _snapshotClone = snapshotClone;
     }
 
     public override string Name => _name;
+
+    internal LuaNative CloneForSnapshot(Func<LuaThread, LuaThread> cloneThread)
+        => _snapshotClone?.Invoke(cloneThread) ?? this;
 }
 
 public sealed class UpVal
@@ -86,6 +91,12 @@ public sealed class UpVal
     }
 
     public bool IsOpen => _thread is not null;
+    internal LuaThread? Thread => _thread;
+
+    internal UpVal(LuaValue value)
+    {
+        _closed = value;
+    }
 
     public LuaValue Value
     {

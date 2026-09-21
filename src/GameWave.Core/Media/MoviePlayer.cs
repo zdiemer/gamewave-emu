@@ -10,6 +10,7 @@ namespace GameWave.Media;
 /// </summary>
 public sealed class MoviePlayer : IDisposable
 {
+    internal sealed record Snapshot(DiscFile? File, bool Loop, bool Playing, bool Paused, double Time, Picture? Shown);
     readonly AudioMixer _mixer;
     readonly object _gate = new();
 
@@ -57,7 +58,9 @@ public sealed class MoviePlayer : IDisposable
         set => _loop = value;
     }
 
-    public void Play()
+    public void Play() => PlayAt(0);
+
+    void PlayAt(double time)
     {
         // Games call Play in their input loops while a movie loops; asking for the movie that
         // is already playing changes nothing.
@@ -79,6 +82,8 @@ public sealed class MoviePlayer : IDisposable
         _demuxDone = false;
         _playing = true;
         _mixer.MovieBegin();
+        if (time > 0)
+            _mixer.SeekMovie(time);
         var file = _file;
         _thread = new Thread(() => DecodeThread(file)) { IsBackground = true, Name = "Game Wave movie" };
         _thread.Start();
@@ -120,6 +125,31 @@ public sealed class MoviePlayer : IDisposable
     }
 
     public void Dispose() => Stop(true);
+
+    internal Snapshot CaptureState()
+    {
+        lock (_gate)
+            return new(_file, _loop, _playing, _paused, _mixer.MovieTime, _shown?.Clone());
+    }
+
+    internal void RestoreState(Snapshot state)
+    {
+        Stop(true);
+        _file = state.File;
+        _loop = state.Loop;
+        if (!state.Playing || state.File is null)
+        {
+            lock (_gate)
+                _shown = state.Shown?.Clone();
+            return;
+        }
+        PlayAt(state.Time);
+        _loop = state.Loop;
+        lock (_gate)
+            _shown = state.Shown?.Clone();
+        if (state.Paused)
+            Pause();
+    }
 
     /// <summary>
     /// Advances to the picture due now and hands it to <paramref name="use"/> (under the

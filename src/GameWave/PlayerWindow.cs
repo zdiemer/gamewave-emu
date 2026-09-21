@@ -908,6 +908,22 @@ public sealed unsafe class PlayerWindow : IDisposable
                 _menu.Toast("Reset");
                 break;
 
+            case InputAction.QuickSave:
+            {
+                if (repeat) break;
+                var error = _machine?.QuickSave();
+                _menu.Toast(error ?? "Quicksaved", error is null ? 2 : 4);
+                break;
+            }
+
+            case InputAction.QuickLoad:
+            {
+                if (repeat) break;
+                var error = _machine?.QuickLoad();
+                _menu.Toast(error ?? "Quickloaded", error is null ? 2 : 4);
+                break;
+            }
+
             case InputAction.ToggleTray:
                 ToggleTray();
                 break;

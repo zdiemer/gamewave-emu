@@ -23,6 +23,8 @@ public sealed partial class LuaThread
         {
             while (true)
             {
+                if (S.InstructionBoundary?.Invoke() == true)
+                    goto newFrame;
                 uint i = code[pc++];
                 f.Pc = pc;
                 int a = @base + (int)(i >> 24);
@@ -396,6 +398,12 @@ public sealed partial class LuaThread
         {
             e.LuaTraceback = Traceback();
             throw;
+        }
+        catch (GameWave.Engine.LuaStateRestoredException)
+        {
+            // The exception unwinds a blocking native engine call. Continue from the
+            // restored Lua frame; the saved graph has rewound that CALL instruction.
+            goto newFrame;
         }
     }
 }

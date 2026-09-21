@@ -122,6 +122,7 @@ public sealed partial class Machine : IDisposable
         if (t is null)
             return;
         _stopRequested = true;
+        CancelQuickRequest("The game stopped");
         Clock.Paused = false;
         Video.StopMovie(true);
         if (!t.Join(3000))
@@ -145,6 +146,8 @@ public sealed partial class Machine : IDisposable
     public void ChangeDisc(IDisc disc)
     {
         Stop();
+        lock (_quickGate)
+            _quickState = null;
         Disc.Dispose();
         Disc = disc;
         Info = ReadInfo(disc);
@@ -211,6 +214,7 @@ public sealed partial class Machine : IDisposable
             }
             break;
         }
+        CancelQuickRequest("The game stopped");
     }
 
     void RunGame()
@@ -219,6 +223,7 @@ public sealed partial class Machine : IDisposable
         var proto = ZbcLoader.Load(file.ReadAll(), Info.AppFile);
         var L = new LuaState { Output = s => Emit(s.TrimEnd('\n')) };
         _lua = L;
+        L.InstructionBoundary = () => ServiceQuickState(insideNativeCall: false);
         BaseLib.Open(L);
         StringLib.Open(L);
         RegisterApi(L);
@@ -231,6 +236,7 @@ public sealed partial class Machine : IDisposable
     /// <summary>Throws out of the game thread when it has been asked to stop.</summary>
     internal void CheckStop()
     {
+        ServiceQuickState(insideNativeCall: true);
         if (_stopRequested || _resetRequested || _trayRequested)
             throw new MachineStoppedException();
     }
@@ -310,8 +316,9 @@ public sealed partial class Machine : IDisposable
     internal void Sleep(int ms)
     {
         _pollCount = 0;
-        if (!Clock.WaitUntil(Clock.Now + Math.Max(0, ms), () => StopPending))
-            throw new MachineStoppedException();
+        long until = Clock.Now + Math.Max(0, ms);
+        while (!Clock.WaitUntil(until, () => StopPending || _quickRequest is not null))
+            CheckStop();
     }
 
     // ------------------------------------------------------------------ display

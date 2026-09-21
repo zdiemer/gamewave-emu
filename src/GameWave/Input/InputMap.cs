@@ -31,6 +31,8 @@ public sealed class InputMap
 
         Bind(InputAction.TogglePause, Binding.Key(Key("P")), Binding.Key(Key("Pause")));
         Bind(InputAction.Reset, Binding.Key(Key("R"), KeyModifiers.Control), Binding.Key(Key("F5")));
+        Bind(InputAction.QuickSave, Binding.Key(Key("F6")));
+        Bind(InputAction.QuickLoad, Binding.Key(Key("F7")));
         Bind(InputAction.ToggleTray, Binding.Key(Key("E"), KeyModifiers.Control));
         Bind(InputAction.OpenDisc, Binding.Key(Key("O"), KeyModifiers.Control));
 

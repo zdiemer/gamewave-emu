@@ -235,24 +235,29 @@ public static class BaseLib
             ("wrap", a =>
             {
                 var co = a.State.NewThread(a.Function(1));
-                return a.Return(new LuaNative("wrap", b =>
-                {
-                    var args = new LuaValue[b.Count];
-                    for (int i = 0; i < args.Length; i++)
-                        args[i] = b[i + 1];
-                    var r = co.Resume(b.L, args, out bool ok);
-                    if (!ok)
-                    {
-                        var e = r.Length > 0 ? r[0] : LuaValue.Nil;
-                        if (e.IsString)
-                            e = LuaValue.String(b.L.Where(1) + e.AsString);
-                        throw new LuaException(e);
-                    }
-                    foreach (var v in r)
-                        b.L.Push(v);
-                    return r.Length;
-                }));
+                return a.Return(WrapCoroutine(co));
             }));
+
+        static LuaNative WrapCoroutine(LuaThread coroutine)
+        {
+            return new LuaNative("wrap", b =>
+            {
+                var args = new LuaValue[b.Count];
+                for (int i = 0; i < args.Length; i++)
+                    args[i] = b[i + 1];
+                var r = coroutine.Resume(b.L, args, out bool ok);
+                if (!ok)
+                {
+                    var e = r.Length > 0 ? r[0] : LuaValue.Nil;
+                    if (e.IsString)
+                        e = LuaValue.String(b.L.Where(1) + e.AsString);
+                    throw new LuaException(e);
+                }
+                foreach (var v in r)
+                    b.L.Push(v);
+                return r.Length;
+            }, clone => WrapCoroutine(clone(coroutine)));
+        }
     }
 
     // ---------------------------------------------------------------- table
@@ -275,6 +280,12 @@ public static class BaseLib
             t["n"] = n;
         else
             Sizes.AddOrUpdate(t, new StrongBox<int>(n));
+    }
+
+    internal static void CopyTableSize(LuaTable source, LuaTable destination)
+    {
+        if (Sizes.TryGetValue(source, out var size))
+            Sizes.AddOrUpdate(destination, new StrongBox<int>(size.Value));
     }
 
     static void OpenTable(LuaState S)

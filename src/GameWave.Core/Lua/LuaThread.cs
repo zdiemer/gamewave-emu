@@ -34,7 +34,7 @@ public sealed partial class LuaThread
     internal CallFrame[] Frames = new CallFrame[16];
     internal int FrameCount;
 
-    readonly List<UpVal> _openUpvals = new();
+    internal readonly List<UpVal> OpenUpvals = new();
 
     public CoroutineStatus Status { get; internal set; } = CoroutineStatus.Suspended;
     internal LuaFunction? StartFunction;
@@ -96,32 +96,32 @@ public sealed partial class LuaThread
 
     internal UpVal FindUpval(int index)
     {
-        for (int i = _openUpvals.Count - 1; i >= 0; i--)
+        for (int i = OpenUpvals.Count - 1; i >= 0; i--)
         {
-            var u = _openUpvals[i];
+            var u = OpenUpvals[i];
             if (u.Index == index)
                 return u;
             if (u.Index < index)
             {
                 var n = new UpVal(this, index);
-                _openUpvals.Insert(i + 1, n);
+                OpenUpvals.Insert(i + 1, n);
                 return n;
             }
         }
         var created = new UpVal(this, index);
-        _openUpvals.Insert(0, created);
+        OpenUpvals.Insert(0, created);
         return created;
     }
 
     internal void CloseUpvals(int level)
     {
-        while (_openUpvals.Count > 0)
+        while (OpenUpvals.Count > 0)
         {
-            var u = _openUpvals[^1];
+            var u = OpenUpvals[^1];
             if (u.Index < level)
                 break;
             u.Close();
-            _openUpvals.RemoveAt(_openUpvals.Count - 1);
+            OpenUpvals.RemoveAt(OpenUpvals.Count - 1);
         }
     }
 

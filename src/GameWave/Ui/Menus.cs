@@ -87,6 +87,8 @@ public static class Menus
                     Help = "Return to the game.",
                     OnActivate = context.CloseMenu,
                 },
+                Command(context, "Quicksave", InputAction.QuickSave, "Remember this point until another disc is opened."),
+                Command(context, "Quickload", InputAction.QuickLoad, "Return to the last quicksave for this game."),
                 Command(context, "Reset", InputAction.Reset, "Press the console's reset: the game starts again."),
                 Command(context, TrayLabel(context), InputAction.ToggleTray, "Open the disc tray, or close it to boot the disc again."),
                 new MenuHeading { Label = "" },
@@ -266,6 +268,9 @@ public static class Menus
         Items =
         [
             Command(context, "Pause", InputAction.TogglePause, "Stop the console where it is, and continue."),
+            Command(context, "Quicksave", InputAction.QuickSave, "Remember this point until another disc is opened."),
+            Command(context, "Quickload", InputAction.QuickLoad, "Return to the last quicksave for this game."),
+            new MenuHeading { Label = "" },
             Command(context, "Reset", InputAction.Reset, "Press the console's reset: the game starts again."),
             Command(context, "Open / Close Tray", InputAction.ToggleTray, "Open the disc tray, or close it to boot the disc again."),
             new MenuHeading { Label = "" },

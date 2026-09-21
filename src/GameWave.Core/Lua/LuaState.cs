@@ -5,9 +5,15 @@ namespace GameWave.Lua;
 /// <summary>A Lua universe: globals, the main thread, and the metamethod-aware operations.</summary>
 public sealed class LuaState
 {
-    public LuaTable Globals { get; } = new();
+    public LuaTable Globals { get; internal set; } = new();
     public LuaThread MainThread { get; }
     public LuaThread CurrentThread { get; internal set; }
+
+    /// <summary>
+    /// Called between bytecode instructions. Returning true means the live Lua graph was
+    /// replaced and the interpreter must reload its current frame.
+    /// </summary>
+    internal Func<bool>? InstructionBoundary { get; set; }
 
     /// <summary>Where <c>print</c> and the engine's log output go.</summary>
     public Action<string> Output { get; set; } = Console.WriteLine;

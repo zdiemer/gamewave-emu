@@ -47,6 +47,7 @@ gamewave "Zap 21 (USA).zip"
   remote the keyboard is.
 - **Save memory**: high scores and settings are kept between sessions, like the console's
   flash memory.
+- **Quicksave**: capture the whole running game in one slot and jump back to it with F7.
 - **Discs as they come**: an `.iso`, a `.zip` holding one (unpacked once, in the
   background), or a folder of a disc's files.
 - **Menus**: a real application menu bar on Windows, plus an in-window menu that works
@@ -184,6 +185,8 @@ to press **SEL** on theirs to join. In `gamewave`:
 | Escape | Open the menu (and back out of it) |
 | P | Pause |
 | Ctrl + R or F5 | Reset the console |
+| F6 | Quicksave the current game state |
+| F7 | Quickload the saved state |
 | Ctrl + E | Open or close the disc tray |
 | Ctrl + O | Open a disc |
 | Ctrl + 1 to 6 | Keyboard plays as red to orange |
@@ -197,6 +200,9 @@ to press **SEL** on theirs to join. In `gamewave`:
 Every one of these, and every key on every remote, can be rebound to the keyboard or to a
 controller. The guide button or a click of the right stick opens the menu from a
 controller.
+
+Quicksave uses one slot for the disc currently in the console. It survives a console reset,
+but is intentionally kept in memory: opening another disc or closing the emulator clears it.
 
 ### Menus and settings
 

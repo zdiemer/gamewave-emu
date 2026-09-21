@@ -58,6 +58,19 @@ public sealed class EmuClock
         }
     }
 
+    /// <summary>Moves emulated time to a saved instant without changing its pause state.</summary>
+    internal void Restore(long now)
+    {
+        lock (_gate)
+        {
+            bool paused = _pausedAt >= 0;
+            _watch.Restart();
+            _pausedTotal = -Math.Max(0, now);
+            _pausedAt = paused ? 0 : -1;
+            Monitor.PulseAll(_gate);
+        }
+    }
+
     /// <summary>
     /// Waits until the clock reaches <paramref name="until"/>, or <paramref name="cancel"/> is
     /// set. Returns false when cancelled.

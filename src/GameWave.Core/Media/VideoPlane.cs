@@ -17,6 +17,7 @@ public enum DeinterlaceMode
 /// </summary>
 public sealed class VideoPlane
 {
+    internal sealed record State(int SourceKind, Picture? Still, MoviePlayer.Snapshot Movie);
     enum Source
     {
         Black,
@@ -118,6 +119,26 @@ public sealed class VideoPlane
         {
             _dirty = true;
             _converted = null;
+        }
+    }
+
+    internal State CaptureState()
+    {
+        lock (_gate)
+            return new State((int)_source, _still?.Clone(), Movie.CaptureState());
+    }
+
+    internal void RestoreState(State state)
+    {
+        Movie.RestoreState(state.Movie);
+        lock (_gate)
+        {
+            _source = Enum.IsDefined(typeof(Source), state.SourceKind) ? (Source)state.SourceKind : Source.Black;
+            _still = state.Still?.Clone();
+            _stillVersion++;
+            _converted = null;
+            _convertedVersion = -1;
+            _dirty = true;
         }
     }
 

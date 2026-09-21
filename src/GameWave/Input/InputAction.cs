@@ -14,6 +14,12 @@ public enum InputAction
     /// <summary>Press the console's reset: the game boots again.</summary>
     Reset,
 
+    /// <summary>Capture the running game in the single quicksave slot.</summary>
+    QuickSave,
+
+    /// <summary>Return to the game in the single quicksave slot.</summary>
+    QuickLoad,
+
     /// <summary>Open or close the disc tray.</summary>
     ToggleTray,
 
@@ -257,6 +263,8 @@ public static class InputActions
     {
         [InputAction.TogglePause] = ("Pause", ActionCategory.Console),
         [InputAction.Reset] = ("Reset", ActionCategory.Console),
+        [InputAction.QuickSave] = ("Quicksave", ActionCategory.Console),
+        [InputAction.QuickLoad] = ("Quickload", ActionCategory.Console),
         [InputAction.ToggleTray] = ("Open / close tray", ActionCategory.Console),
         [InputAction.OpenDisc] = ("Open disc", ActionCategory.Console),
 
@@ -314,6 +322,7 @@ public static class InputActions
     /// </summary>
     public static bool NeedsDisc(InputAction action)
         => IsRemoteKey(action) || action is InputAction.TogglePause or InputAction.Reset
+            or InputAction.QuickSave or InputAction.QuickLoad
             or InputAction.ToggleTray or InputAction.Screenshot;
 
     /// <summary>A human-readable name for a remote key.</summary>

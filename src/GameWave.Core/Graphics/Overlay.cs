@@ -38,6 +38,25 @@ public sealed class Overlay
 
     public int AnimationCount => Animations.Count + (TextureAnim is { Finished: false } ? 1 : 0);
 
+    internal Overlay Clone(IReadOnlyDictionary<Texture, Texture> textures)
+    {
+        var copy = new Overlay(Id)
+        {
+            ActiveFrame = ActiveFrame,
+            X = X,
+            Y = Y,
+            Z = Z,
+            Visible = Visible,
+            Opacity = Opacity,
+            TextureAnim = TextureAnim?.Clone(),
+        };
+        foreach (var frame in Frames)
+            copy.Frames.Add(textures[frame]);
+        foreach (var animation in Animations)
+            copy.Animations.Add(animation.Clone());
+        return copy;
+    }
+
     /// <summary>Advances animations to <paramref name="now"/> (milliseconds).</summary>
     public void Update(long now)
     {
@@ -67,6 +86,8 @@ public abstract class OverlayAnimation
             return 1f;
         return Math.Clamp((now - Start) / (float)Duration, 0f, 1f);
     }
+
+    internal OverlayAnimation Clone() => (OverlayAnimation)MemberwiseClone();
 }
 
 public sealed class PositionAnimation : OverlayAnimation
@@ -179,6 +200,8 @@ public sealed class TextureAnimation
         _steps = steps;
         _start = start;
     }
+
+    internal TextureAnimation Clone() => (TextureAnimation)MemberwiseClone();
 
     public void Apply(Overlay o, long now)
     {

@@ -33,6 +33,7 @@ public readonly record struct KeyEvent(int Key, int Remote, long Timestamp);
 /// <summary>The engine's key queue, fed by the host and drained by <c>input.GetKey</c>.</summary>
 public sealed class InputQueue
 {
+    internal sealed record State(KeyEvent[] Events, int Capacity, int Mode, bool RemotesEnabled, int[] RandomKeys);
     public const int NoKey = 255;
     public const int NoRemote = 255;
 
@@ -74,6 +75,27 @@ public sealed class InputQueue
     {
         lock (_gate)
             _queue.Clear();
+    }
+
+    internal State CaptureState()
+    {
+        lock (_gate)
+            return new State(_queue.ToArray(), _capacity, Mode, RemotesEnabled, (int[])_randomKeys.Clone());
+    }
+
+    internal void RestoreState(State state)
+    {
+        lock (_gate)
+        {
+            _queue.Clear();
+            foreach (var item in state.Events)
+                _queue.Enqueue(item);
+            _capacity = state.Capacity;
+            Mode = state.Mode;
+            RemotesEnabled = state.RemotesEnabled;
+            _randomKeys = (int[])state.RandomKeys.Clone();
+            Monitor.PulseAll(_gate);
+        }
     }
 
     public bool TryTake(out KeyEvent e, long now)
