@@ -60,6 +60,12 @@ public sealed class InputQueue
             _randomKeys = keys;
     }
 
+    /// <summary>The keys the game says make sense on its current screen, for its auto mode; often empty.</summary>
+    public int[] RandomKeys
+    {
+        get { lock (_gate) return _randomKeys; }
+    }
+
     public void Push(RemoteKey key, Remote remote, long timestamp)
     {
         lock (_gate)

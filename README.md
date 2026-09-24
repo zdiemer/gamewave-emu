@@ -245,16 +245,26 @@ straight away and the output follows it. In PowerShell, pipe it anywhere to wait
 ```
 gamewave info <disc>                      What the disc is and what it holds
 gamewave run  <disc> [--seconds N] [--press MS:KEY[:REMOTE],...] [--shot MS:FILE.png,...]
-                     [--monkey MS] [--saves FILE] [--log N]
+                     [--monkey MS [--guided]] [--saves FILE] [--swap DISC]... [--log N]
 gamewave disasm <file.zbc>                Disassemble a game program
 ```
 
 `gamewave run` plays a disc with no window and no sound device. Key presses and screenshots
-happen at the given times in milliseconds of console time, and `--monkey` presses random
-keys for soak testing:
+happen at the given times in milliseconds of console time (a press can also repeat, as
+`60000-90000/500:c`), and `--monkey` presses random keys for soak testing. Some games list
+the keys that make sense on each screen for their own auto mode; `--guided` keeps the
+monkey to those and to the red remote, so it plays through the game:
 
 ```sh
 gamewave run "Zap 21 (USA).iso" --seconds 60 --press 40000:select,50000:select --shot 55000:menu.png
+```
+
+When the game opens the tray, the run closes it again on the same disc, or puts in the next
+`--swap` disc if one is given. This is how to check a two-disc set such as Rewind 2005:
+
+```sh
+gamewave run "Rewind 2005 (USA) (Disc A).iso" --seconds 900 --monkey 400 --guided \
+    --press 60000-900000/150:c --swap "Rewind 2005 (USA) (Disc B).iso"
 ```
 
 ## Settings from the command line

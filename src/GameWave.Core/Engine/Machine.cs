@@ -145,12 +145,23 @@ public sealed partial class Machine : IDisposable
     /// <summary>Takes out the disc and puts another in, keeping the machine powered on.</summary>
     public void ChangeDisc(IDisc disc)
     {
+        // Read the new disc first, so one that is not a Game Wave disc leaves the old one in.
+        GameInfo info;
+        try
+        {
+            info = ReadInfo(disc);
+        }
+        catch
+        {
+            disc.Dispose();
+            throw;
+        }
         Stop();
         lock (_quickGate)
             _quickState = null;
         Disc.Dispose();
         Disc = disc;
-        Info = ReadInfo(disc);
+        Info = info;
         _engineResources = null;
         Start();
     }

@@ -82,10 +82,14 @@ internal static class Usage
                                                     Run with no window or sound device,
                                                     pressing keys and taking screenshots
                                                     at the given times (milliseconds).
+                                                    MS can be FROM-TO/EVERY to repeat.
                                                     Keys: 0-9, up, down, left, right,
                                                     select, a, b, c, d, gamemenu, dvdmenu.
-                                                    --monkey MS presses random keys; --saves FILE
-                                                    keeps save memory in a file.
+                                                    --monkey MS presses random keys (with
+                                                    --guided, only ones the game suggests
+                                                    for the screen it is on); --saves FILE
+                                                    keeps save memory in a file; --swap DISC
+                                                    puts DISC in when the tray opens.
               gamewave disasm <file.zbc>            Disassemble a game program.
 
             SETTINGS

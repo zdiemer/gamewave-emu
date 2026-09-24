@@ -18,8 +18,10 @@ internal static class RunCommand
         var shots = new List<(long At, string Path)>();
         int logLevel = 3;
         int monkey = 0;
+        bool guided = false;
         string? saves = null;
         int? seed = null;
+        var swaps = new Queue<string>();
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -28,13 +30,23 @@ internal static class RunCommand
                     seconds = double.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
                     break;
                 case "--press":
-                    // time:key[:remote], e.g. 5000:select or 8000:a:blue
+                    // time:key[:remote], e.g. 5000:select or 8000:a:blue; the time can also be
+                    // from-to/every, e.g. 60000-90000/500:c presses c twice a second for 30 s.
                     foreach (var spec in args[++i].Split(','))
                     {
                         var parts = spec.Split(':');
                         var key = Enum.Parse<RemoteKey>(parts[1], true);
                         var remote = parts.Length > 2 ? Enum.Parse<Remote>(parts[2], true) : Remote.Red;
-                        presses.Add((long.Parse(parts[0]), key, remote));
+                        var when = parts[0].Split('-', '/');
+                        if (when.Length == 3)
+                        {
+                            for (long t = long.Parse(when[0]); t <= long.Parse(when[1]); t += Math.Max(1, long.Parse(when[2])))
+                                presses.Add((t, key, remote));
+                        }
+                        else
+                        {
+                            presses.Add((long.Parse(parts[0]), key, remote));
+                        }
                     }
                     break;
                 case "--shot":
@@ -49,8 +61,17 @@ internal static class RunCommand
                     // Random key presses every so many milliseconds, for soak testing.
                     monkey = int.Parse(args[++i]);
                     break;
+                case "--guided":
+                    // The monkey presses only the keys the game lists for its own auto mode,
+                    // on games that list them, so it plays through instead of wandering.
+                    guided = true;
+                    break;
                 case "--saves":
                     saves = args[++i];
+                    break;
+                case "--swap":
+                    // A disc to put in the next time the tray opens; repeat for more.
+                    swaps.Enqueue(args[++i]);
                     break;
                 case "--seed":
                     seed = int.Parse(args[++i]);
@@ -65,7 +86,7 @@ internal static class RunCommand
         }
         if (disc is null)
         {
-            Console.Error.WriteLine("usage: gamewave run <disc> [--seconds N] [--press ms:key[:remote],...] [--shot ms:file.png,...] [--log 0-5]");
+            Console.Error.WriteLine("usage: gamewave run <disc> [--seconds N] [--press ms:key[:remote],...] [--shot ms:file.png,...] [--swap disc]... [--log 0-5]");
             return 2;
         }
 
@@ -85,8 +106,16 @@ internal static class RunCommand
         {
             if (machine.State == MachineState.TrayOpen)
             {
-                Console.WriteLine($"[{machine.Clock.Now,7}] (tray opened; closing it)");
-                machine.CloseTray();
+                if (swaps.TryDequeue(out var next))
+                {
+                    Console.WriteLine($"[{machine.Clock.Now,7}] (tray opened; putting in {Path.GetFileName(next.TrimEnd('\\', '/'))})");
+                    machine.ChangeDisc(CliDisc.Open(next));
+                }
+                else
+                {
+                    Console.WriteLine($"[{machine.Clock.Now,7}] (tray opened; closing it)");
+                    machine.CloseTray();
+                }
             }
             long now = machine.Clock.Now;
             while (pi < presses.Count && presses[pi].At <= now)
@@ -98,9 +127,11 @@ internal static class RunCommand
             if (monkey > 0 && now >= nextMonkey)
             {
                 nextMonkey = now + monkey / 2 + random.Next(monkey);
-                var key = (RemoteKey)random.Next(0, 21);
-                // Mostly the red remote, sometimes another player.
-                var remote = random.Next(4) == 0 ? (Remote)random.Next(1, 7) : Remote.Red;
+                var table = guided ? machine.Input.RandomKeys : [];
+                var key = (RemoteKey)(table.Length > 0 ? table[random.Next(table.Length)] : random.Next(0, 21));
+                // Mostly the red remote, sometimes another player; guided, only red, so one
+                // player joins and the game moves along.
+                var remote = !guided && random.Next(4) == 0 ? (Remote)random.Next(1, 7) : Remote.Red;
                 machine.Input.Push(key, remote, now);
             }
             machine.RenderFrame(frame);
