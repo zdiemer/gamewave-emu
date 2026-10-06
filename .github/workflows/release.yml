@@ -6,8 +6,9 @@
 # loose library there needs nothing extracted at start-up. On Linux and macOS a system
 # SDL2, when there is one, is tried before the bundled copy.
 #
-# Each runner tests, publishes and packages its own platforms; one job at the end
-# makes the release from all of them, so a failure anywhere ships nothing.
+# Each runner runs automated checks and packages its native architecture. Linux
+# and macOS archives are experimental: CI checks do not establish gameplay or
+# frontend compatibility. One job publishes only after every build succeeds.
 name: release
 
 on:
@@ -51,13 +52,21 @@ jobs:
 
   build:
     needs: version
-    name: build (${{ matrix.os }})
+    name: build (${{ matrix.rid }})
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            rids: win-x64
+            rid: win-x64
+          - os: ubuntu-22.04
+            rid: linux-x64
+          - os: ubuntu-22.04-arm
+            rid: linux-arm64
+          - os: macos-15
+            rid: osx-arm64
+          - os: macos-15-intel
+            rid: osx-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -77,6 +86,10 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: x64
+
+      - name: Install native build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
       - name: Package libretro (Windows)
         if: runner.os == 'Windows'
@@ -128,60 +141,11 @@ jobs:
       - name: Package (Linux, macOS)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          for rid in ${{ matrix.rids }}; do
-            case "$rid" in
-              linux-x64)   name=gamewave-linux-x86_64; lib=libSDL2-2.0.so ;;
-              linux-arm64) name=gamewave-linux-arm64;  lib=libSDL2-2.0.so ;;
-              osx-arm64)   name=gamewave-macos-arm64;  lib=libSDL2-2.0.dylib ;;
-              osx-x64)     name=gamewave-macos-x86_64; lib=libSDL2-2.0.dylib ;;
-              *) echo "no package name for $rid" >&2; exit 1 ;;
-            esac
-
-            out="publish/$rid"
-            dotnet publish src/GameWave -c Release -r "$rid" --self-contained -p:PublishSingleFile=true -p:DebugType=none -o "$out"
-            for file in "$out/gamewave" "$out/$lib"; do
-              [ -f "$file" ] || { echo "missing $file" >&2; exit 1; }
-            done
-            chmod 755 "$out/gamewave"
-
-            if [ "$(uname)" = Darwin ]; then
-              # The SDK signs gamewave ad hoc, and is trusted to have; the NuGet dylib may
-              # not be signed at all, and Apple silicon will not load an unsigned
-              # library either. Running gamewave below proves it still starts.
-              codesign --verify "$out/gamewave" 2>/dev/null || codesign --force --sign - "$out/gamewave"
-              codesign --force --sign - "$out/$lib"
-              codesign --verify --verbose "$out/gamewave" "$out/$lib"
-            fi
-
-            # Run whatever this machine can run: the native architecture, and x64 on
-            # a Mac with Rosetta. The rest is only checked for being there.
-            runnable=false
-            case "$rid" in
-              linux-x64) [ "$(uname -m)" = x86_64 ] && runnable=true ;;
-              osx-arm64) [ "$(uname -m)" = arm64 ] && runnable=true ;;
-              osx-x64)   arch -x86_64 /usr/bin/true 2>/dev/null && runnable=true ;;
-            esac
-            if [ "$runnable" = true ]; then
-              version="$("$out/gamewave" version)"
-              [ -n "$version" ] || { echo "$rid: gamewave version printed nothing" >&2; exit 1; }
-              echo "built $rid: $version"
-            else
-              echo "built $rid (not runnable on this runner)"
-            fi
-
-            # tar, not zip, so the executable bit survives the trip.
-            mkdir -p "staging/$name"
-            cp "$out/gamewave" "$out/$lib" README.md LICENSE "staging/$name/"
-            chmod 644 "staging/$name/$lib" "staging/$name/README.md" "staging/$name/LICENSE"
-            tar -czf "dist/$name.tar.gz" -C staging "$name"
-          done
+        run: bash .github/scripts/package-unix.sh '${{ matrix.rid }}'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
+          name: dist-${{ matrix.rid }}
           path: dist/*
           if-no-files-found: error
 
@@ -189,6 +153,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
@@ -199,13 +167,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum -- * > SHA256SUMS
-          cat SHA256SUMS
-          # `create` fails if the release already exists (a re-run, or a tag pushed
-          # after a manual release); fall back to uploading into it.
-          if ! gh release create "$TAG" --title "$TAG" --generate-notes ./*; then
-            gh release upload "$TAG" --clobber ./*
-          fi
+        run: python3 .github/scripts/publish-release.py

@@ -1,0 +1,15 @@
+EXPERIMENTAL PLATFORM BUILD
+
+Linux and macOS packages are experimental. Automated build, version, and native
+ABI checks do not establish compatibility with real games or frontend setups.
+GUI presentation, physical controllers, audio devices, and RetroArch/netplay on
+these platforms remain untested. macOS and Linux ARM64 have no manual validation.
+
+Linux x64 is being checked in Ubuntu 24.04 under WSL2. See the release notes and
+README for the completed checks. WSL results do not establish compatibility with
+every Linux distribution or a native Linux desktop.
+
+macOS binaries are signed ad hoc, not notarized.
+
+Please include your OS, CPU architecture, frontend version (if applicable), disc,
+and reproduction steps when reporting problems.

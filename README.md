@@ -90,7 +90,7 @@ menus, and survives a soak test of random remote presses.
 ## Installing
 
 The [latest release](https://github.com/zdiemer/gamewave-emu/releases/latest) includes
-two Windows x64 packages. Both run without an installed .NET runtime; the standalone
+Windows x64 and experimental Linux/macOS packages. All run without an installed .NET runtime; the standalone
 player includes SDL2 beside the executable.
 
 | Package | Download |
@@ -106,7 +106,22 @@ still works from a prompt; see [The command line on Windows](#the-command-line-o
 
 ### Linux and macOS
 
-Build from source for these platforms; release downloads currently target Windows.
+These downloads are **experimental**. macOS and Linux ARM64 have automated checks
+only and remain untested with games and real frontends. Linux x64 has headless
+validation under Ubuntu 24.04 in WSL2; desktop graphics, audio, controllers, and
+RetroArch/netplay still need validation on Linux. Every archive includes
+`EXPERIMENTAL.txt` with these limits. macOS binaries are signed ad hoc, not notarized.
+
+| Platform | Standalone | Libretro core |
+|----------|------------|---------------|
+| Linux x64 | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-linux-x86_64-experimental.tar.gz) | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-libretro-linux-x86_64-experimental.tar.gz) |
+| Linux ARM64 | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-linux-arm64-experimental.tar.gz) | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-libretro-linux-arm64-experimental.tar.gz) |
+| macOS Apple silicon | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-macos-arm64-experimental.tar.gz) | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-libretro-macos-arm64-experimental.tar.gz) |
+| macOS Intel | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-macos-x86_64-experimental.tar.gz) | [Download](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-libretro-macos-x86_64-experimental.tar.gz) |
+
+Extract the archive with `tar -xzf ARCHIVE.tar.gz`, enter its directory, and run
+`./gamewave "Your Disc.iso"`. For libretro, copy the library and info file to the
+frontend directories described in [the libretro guide](docs/libretro.md).
 Keep the SDL2 library beside `gamewave`; an installed SDL2 is preferred when there is one.
 The native menu bar is Windows-only, so use the in-window menu (Escape).
 
@@ -122,8 +137,9 @@ dotnet test
 
 The binary lands in `src/GameWave/bin/Release/net10.0/`. Pushing a `v*` tag that matches
 `<Version>` in both `src/GameWave/GameWave.csproj` and
-`src/GameWave.Libretro/GameWave.Libretro.csproj` builds, tests, and publishes both Windows
-packages with SHA-256 checksums.
+`src/GameWave.Libretro/GameWave.Libretro.csproj` builds, tests, and publishes Windows
+packages and experimental Linux/macOS packages with SHA-256 checksums. Each platform
+is built on a native runner; automated checks do not replace frontend validation.
 
 ### Libretro / RetroArch
 

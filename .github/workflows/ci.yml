@@ -16,6 +16,39 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
 
 jobs:
+  experimental:
+    name: Experimental ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04-arm
+            rid: linux-arm64
+          - os: macos-15
+            rid: osx-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Managed tests
+        run: dotnet test -c Release
+      - name: Install native build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Build, probe, and package experimental binaries
+        shell: bash
+        run: |
+          export TAG="v$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("src/GameWave/GameWave.csproj").findtext(".//Version"))')"
+          bash .github/scripts/package-unix.sh '${{ matrix.rid }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: experimental-${{ matrix.rid }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
   build:
     name: ${{ matrix.os }}
     strategy:

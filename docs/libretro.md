@@ -18,11 +18,19 @@ dotnet publish src/GameWave.Libretro -c Release -r win-x64 -o artifacts/libretro
 Use `linux-x64`, `linux-arm64`, `osx-x64` or `osx-arm64` for those targets.
 The output library is `gamewave_libretro.dll` on Windows,
 `gamewave_libretro.so` on Linux, or `gamewave_libretro.dylib` on macOS.
-Windows x64 is tested locally; CI publishes and smoke-tests Windows x64 and Linux x64.
-Other targets require validation on their respective systems.
+Windows x64 is tested locally. CI builds and runs the managed suite and native
+ABI, determinism, and frontend-interface probes on all five targets. Linux x64
+also has headless validation in Ubuntu 24.04 under WSL2. Real RetroArch, desktop
+audio/controllers, and netplay remain untested on Linux and macOS; macOS and
+Linux ARM64 have no manual game validation.
 
 Tagged releases package the Windows core and its info file as
 `gamewave-libretro-windows-x86_64.zip`.
+Experimental Linux and macOS downloads are named
+`gamewave-libretro-PLATFORM-experimental.tar.gz`, with `PLATFORM` set to
+`linux-x86_64`, `linux-arm64`, `macos-x86_64`, or `macos-arm64`.
+Each includes an `EXPERIMENTAL.txt` warning; macOS libraries are signed ad hoc,
+not notarized. These packages need validation on their respective systems.
 
 Copy the library to your frontend's cores directory and
 `gamewave_libretro.info` to its core info directory. In RetroArch these locations
