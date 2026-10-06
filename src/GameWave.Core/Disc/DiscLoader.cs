@@ -10,24 +10,25 @@ public static class DiscLoader
     /// Opens a disc image (.iso), a zip holding one (unpacked into <paramref name="cacheDirectory"/>
     /// first, keeping the <paramref name="keep"/> most recent), or a folder holding a disc's files.
     /// </summary>
-    public static IDisc Open(string path, string? cacheDirectory = null, int keep = 3, IProgress<double>? progress = null, CancellationToken cancel = default)
+    public static IDisc Open(string path, string? cacheDirectory = null, int keep = 3, IProgress<double>? progress = null, CancellationToken cancel = default, FileSystem? fileSystem = null)
     {
-        if (Directory.Exists(path))
-            return new FolderDisc(path);
-        if (!File.Exists(path))
+        fileSystem ??= LocalFileSystem.Instance;
+        if (fileSystem.DirectoryExists(path))
+            return new FolderDisc(path, fileSystem);
+        if (!fileSystem.FileExists(path))
             throw new FileNotFoundException($"{path} does not exist");
         string ext = Path.GetExtension(path).ToLowerInvariant();
         if (ext == ".zip")
         {
-            var image = ZipDisc.Unpack(path, cacheDirectory ?? DefaultCacheDirectory, keep, progress, cancel);
-            return new LabelledDisc(UdfDisc.Open(image), Path.GetFileNameWithoutExtension(path));
+            var image = ZipDisc.Unpack(path, cacheDirectory ?? DefaultCacheDirectory, keep, progress, cancel, fileSystem);
+            return new LabelledDisc(UdfDisc.Open(image, fileSystem), Path.GetFileNameWithoutExtension(path));
         }
-        using (var probe = File.OpenRead(path))
+        using (var probe = fileSystem.OpenRead(path))
         {
             if (!UdfDisc.Probe(probe))
                 throw new InvalidDataException($"{Path.GetFileName(path)} is not a DVD image");
         }
-        var disc = UdfDisc.Open(path);
+        var disc = UdfDisc.Open(path, fileSystem);
         return new LabelledDisc(disc, Path.GetFileNameWithoutExtension(path));
     }
 

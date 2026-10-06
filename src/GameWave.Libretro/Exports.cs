@@ -18,10 +18,14 @@ static unsafe class Exports
     static delegate* unmanaged[Cdecl]<uint, uint, uint, uint, short> _inputState;
     static CoreSession? _session;
     static readonly RetroInput Input = new();
-    static readonly ConcurrentQueue<string> Messages = new();
+    readonly record struct LogEntry(int Level, string Text, bool Message);
+    static readonly ConcurrentQueue<LogEntry> Messages = new();
+    static delegate* unmanaged[Cdecl]<int, byte*, byte*, void> _log;
+    static readonly byte* LogFormat = String("%s\n");
     static bool _failed;
     static uint _initialIndex;
     static string? _initialPath;
+    static GameWave.Disc.FileSystem _fileSystem = GameWave.Disc.LocalFileSystem.Instance;
 
     // The frontend may retain these pointers until deinit, and request info before init.
     // Small immutable ABI metadata allocations live for the lifetime of the library.
@@ -103,19 +107,23 @@ static unsafe class Exports
 
     static void QueueLog(string text)
     {
-        if (text.StartsWith("Game script error:", StringComparison.Ordinal) || text.StartsWith("Emulator error:", StringComparison.Ordinal))
-            Messages.Enqueue(text);
+        bool error = text.StartsWith("Game script error:", StringComparison.Ordinal) || text.StartsWith("Emulator error:", StringComparison.Ordinal);
+        Messages.Enqueue(new(error ? 3 : 1, text, error));
     }
 
     static void ShowMessages()
     {
-        while (Messages.TryDequeue(out var text))
+        while (Messages.TryDequeue(out var entry))
         {
-            var ptr = String(text);
+            var ptr = String(entry.Text);
             try
             {
-                var message = new RetroMessage { Text = ptr, Frames = 300 };
-                Env(6, &message); // SET_MESSAGE
+                if (_log != null) _log(entry.Level, LogFormat, ptr);
+                if (entry.Message)
+                {
+                    var message = new RetroMessage { Text = ptr, Frames = 300 };
+                    Env(6, &message); // SET_MESSAGE
+                }
             }
             finally { Marshal.FreeCoTaskMem((nint)ptr); }
         }
@@ -123,7 +131,7 @@ static unsafe class Exports
 
     static void Error(Exception error)
     {
-        Messages.Enqueue("gamewave: " + error.Message);
+        Messages.Enqueue(new(3, "gamewave: " + error.Message, true));
         ShowMessages();
     }
 
@@ -196,6 +204,11 @@ static unsafe class Exports
         try
         {
             Unload();
+            var log = new RetroLog();
+            _log = Env(27, &log) ? log.Callback : null;
+            var vfs = new RetroVfsInfo { Version = 3 };
+            _fileSystem = Env(45 | 0x10000, &vfs) && vfs.Interface != null && VfsFileSystem.Complete(*vfs.Interface)
+                ? new VfsFileSystem(*vfs.Interface) : GameWave.Disc.LocalFileSystem.Instance;
             var keyboard = new RetroKeyboard { Callback = &Keyboard };
             Env(12, &keyboard);
             var disk = new RetroDiskControl
@@ -216,6 +229,7 @@ static unsafe class Exports
     {
         try { Unload(); }
         catch (Exception error) { Error(error); }
+        finally { _log = null; _fileSystem = GameWave.Disc.LocalFileSystem.Instance; }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "retro_get_system_info", CallConvs = [typeof(CallConvCdecl)])]
@@ -250,12 +264,13 @@ static unsafe class Exports
             byte* savePath = null;
             string saveDirectory = Env(31, &savePath) && Read(savePath) is { Length: > 0 } directory
                 ? directory : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "gamewave-libretro");
-            _session = new CoreSession(path, saveDirectory, QueueLog, _initialIndex, _initialPath);
+            _session = new CoreSession(path, saveDirectory, QueueLog, _initialIndex, _initialPath, _fileSystem);
             fixed (byte* pointer = _session.Memory.Data)
                 *MemoryDescriptor = new() { Flags = 8, Pointer = pointer, Length = FrontendMemory.Size, AddressSpace = FlashAddressSpace };
             var memoryMap = new RetroMemoryMap { Descriptors = MemoryDescriptor, Count = 1 };
             Env(36 | 0x10000, &memoryMap);
             ReadOptions();
+            QueueLog("Loaded " + _session.Machine.Info.AppName);
             return 1;
         }
         catch (Exception error) { Error(error); return 0; }
@@ -347,7 +362,7 @@ static unsafe class Exports
             if (down != 0 && (modifiers & (2 | 4 | 8)) == 0 && _session is { } session && !session.Ejected)
                 Input.Keyboard(key, session.Machine);
         }
-        catch (Exception error) { Messages.Enqueue("gamewave: " + error.Message); }
+        catch (Exception error) { Messages.Enqueue(new(3, "gamewave: " + error.Message, true)); }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]

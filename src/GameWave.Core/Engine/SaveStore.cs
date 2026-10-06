@@ -1,4 +1,5 @@
 using System.Text;
+using GameWave.Disc;
 
 namespace GameWave.Engine;
 
@@ -18,6 +19,7 @@ public sealed class SaveStore
     }
 
     readonly string? _path;
+    readonly FileSystem _fileSystem;
     readonly List<Slot> _slots = new();
     readonly object _gate = new();
     bool _dirty;
@@ -28,12 +30,13 @@ public sealed class SaveStore
     public void Flush() { lock (_gate) if (_dirty) Save(force: true); }
 
     /// <summary>Opens a store backed by a file, or an in-memory one when the path is null.</summary>
-    public SaveStore(string? path)
+    public SaveStore(string? path, FileSystem? fileSystem = null)
     {
         _path = path;
-        if (path is not null && File.Exists(path))
+        _fileSystem = fileSystem ?? LocalFileSystem.Instance;
+        if (path is not null && _fileSystem.FileExists(path))
         {
-            _persisted = File.ReadAllBytes(path);
+            _persisted = _fileSystem.ReadAllBytes(path);
             try { Import(_persisted); _dirty = false; }
             catch (IOException) { }
         }
@@ -158,7 +161,7 @@ public sealed class SaveStore
             _dirty = false;
             return;
         }
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
+        _fileSystem.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         byte[] bytes = Export();
         if (_persisted is not null && bytes.AsSpan().SequenceEqual(_persisted))
         {
@@ -166,8 +169,8 @@ public sealed class SaveStore
             return;
         }
         string tmp = _path + ".tmp";
-        File.WriteAllBytes(tmp, bytes);
-        File.Move(tmp, _path, true);
+        _fileSystem.WriteAllBytes(tmp, bytes);
+        _fileSystem.Move(tmp, _path);
         _persisted = bytes;
         _dirty = false;
     }

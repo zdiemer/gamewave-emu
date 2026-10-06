@@ -4,10 +4,12 @@ namespace GameWave.Disc;
 public sealed class FolderDisc : IDisc
 {
     readonly string _root;
+    readonly FileSystem _fileSystem;
 
-    public FolderDisc(string root)
+    public FolderDisc(string root, FileSystem? fileSystem = null)
     {
         _root = Path.GetFullPath(root);
+        _fileSystem = fileSystem ?? LocalFileSystem.Instance;
         Label = Path.GetFileName(_root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
     }
 
@@ -21,14 +23,12 @@ public sealed class FolderDisc : IDisc
         {
             bool last = i == parts.Length - 1;
             string? match = null;
-            var candidates = last && !wantDirectory
-                ? Directory.EnumerateFiles(current)
-                : Directory.EnumerateDirectories(current);
+            var candidates = _fileSystem.List(current).Where(e => e.IsDirectory == !(last && !wantDirectory));
             foreach (var c in candidates)
             {
-                if (string.Equals(Path.GetFileName(c), parts[i], StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(c.Name, parts[i], StringComparison.OrdinalIgnoreCase))
                 {
-                    match = c;
+                    match = Path.Combine(current, c.Name);
                     break;
                 }
             }
@@ -42,7 +42,7 @@ public sealed class FolderDisc : IDisc
     public DiscFile? Find(string path)
     {
         var p = Resolve(path, false);
-        return p is null ? null : new FolderFile(DiscPath.Normalize(path), p);
+        return p is null ? null : new FolderFile(DiscPath.Normalize(path), p, _fileSystem);
     }
 
     public IReadOnlyList<DiscEntry>? List(string path)
@@ -50,20 +50,15 @@ public sealed class FolderDisc : IDisc
         var p = DiscPath.Split(path).Length == 0 ? _root : Resolve(path, true);
         if (p is null)
             return null;
-        var list = new List<DiscEntry>();
-        foreach (var d in Directory.EnumerateDirectories(p))
-            list.Add(new DiscEntry(Path.GetFileName(d), true, 0));
-        foreach (var f in Directory.EnumerateFiles(p))
-            list.Add(new DiscEntry(Path.GetFileName(f), false, new FileInfo(f).Length));
-        return list;
+        return _fileSystem.List(p).Select(e => new DiscEntry(e.Name, e.IsDirectory, e.Length)).ToArray();
     }
 
     public void Dispose() { }
 
-    sealed class FolderFile(string discPath, string fullPath) : DiscFile
+    sealed class FolderFile(string discPath, string fullPath, FileSystem fileSystem) : DiscFile
     {
         public override string Path => discPath;
-        public override long Length => new FileInfo(fullPath).Length;
-        public override Stream Open() => new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+        public override long Length => fileSystem.Stat(fullPath)?.Length ?? throw new FileNotFoundException(fullPath);
+        public override Stream Open() => fileSystem.OpenRead(fullPath);
     }
 }

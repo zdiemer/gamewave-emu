@@ -81,3 +81,28 @@ unsafe struct RetroMemoryDescriptor
 }
 [StructLayout(LayoutKind.Sequential)]
 unsafe struct RetroMemoryMap { public RetroMemoryDescriptor* Descriptors; public uint Count; }
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroLog { public delegate* unmanaged[Cdecl]<int, byte*, byte*, void> Callback; }
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroVfs
+{
+    public delegate* unmanaged[Cdecl]<nint, byte*> GetPath;
+    public delegate* unmanaged[Cdecl]<byte*, uint, uint, nint> Open;
+    public delegate* unmanaged[Cdecl]<nint, int> Close;
+    public delegate* unmanaged[Cdecl]<nint, long> Size, Tell;
+    public delegate* unmanaged[Cdecl]<nint, long, int, long> Seek;
+    public delegate* unmanaged[Cdecl]<nint, void*, ulong, long> Read, Write;
+    public delegate* unmanaged[Cdecl]<nint, int> Flush;
+    public delegate* unmanaged[Cdecl]<byte*, int> Remove;
+    public delegate* unmanaged[Cdecl]<byte*, byte*, int> Rename;
+    public delegate* unmanaged[Cdecl]<nint, long, long> Truncate;
+    public delegate* unmanaged[Cdecl]<byte*, int*, int> Stat;
+    public delegate* unmanaged[Cdecl]<byte*, int> Mkdir;
+    public delegate* unmanaged[Cdecl]<byte*, byte, nint> OpenDir;
+    public delegate* unmanaged[Cdecl]<nint, byte> ReadDir;
+    public delegate* unmanaged[Cdecl]<nint, byte*> DirName;
+    public delegate* unmanaged[Cdecl]<nint, byte> IsDir;
+    public delegate* unmanaged[Cdecl]<nint, int> CloseDir;
+}
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroVfsInfo { public uint Version; public RetroVfs* Interface; }

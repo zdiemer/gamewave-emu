@@ -23,11 +23,12 @@ public sealed class UdfDisc : IDisc
     {
         _openImage = openImage;
         _meta = openImage();
-        _root = ReadVolume();
+        try { _root = ReadVolume(); }
+        catch { _meta.Dispose(); throw; }
     }
 
-    public static UdfDisc Open(string isoPath)
-        => new(() => new FileStream(isoPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16));
+    public static UdfDisc Open(string isoPath, FileSystem? fileSystem = null)
+        => new(() => (fileSystem ?? LocalFileSystem.Instance).OpenRead(isoPath));
 
     /// <summary>True when the image carries a UDF anchor at sector 256.</summary>
     public static bool Probe(Stream s)

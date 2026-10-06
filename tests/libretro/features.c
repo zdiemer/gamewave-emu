@@ -4,6 +4,7 @@
 #include "smoke.c"
 #undef environment
 #undef main
+#include "frontend-vfs.h"
 
 static unsigned option_version = 2, legacy_options, v1_options, v2_options;
 static bool extended_disks = true;
@@ -16,6 +17,12 @@ static void (*p_cheat)(unsigned, bool, const char *), (*p_cheat_reset)(void);
 static bool RETRO_CALLCONV environment(unsigned cmd, void *data)
 {
     switch (cmd) {
+        case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
+            ((struct retro_log_callback *)data)->log = frontend_log; return true;
+        case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
+            CHECK(((struct retro_vfs_interface_info *)data)->required_interface_version == 3);
+            if (!vfs_enabled) return false;
+            ((struct retro_vfs_interface_info *)data)->iface = &frontend_vfs; return true;
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
             memory_map = *(struct retro_memory_map *)data;
             if (memory_map.num_descriptors) {
@@ -74,6 +81,9 @@ static size_t make_sram(unsigned char *memory, size_t size)
 int main(int argc, char **argv)
 {
     CHECK(argc == 3);
+#ifdef _WIN32
+    frontend_thread = GetCurrentThreadId();
+#endif
     char content[4096], tray[4096], playlist[4096], tray_info[4096], text[4096];
     join_path(content,sizeof(content),argv[2],"disc"); join_path(tray,sizeof(tray),argv[2],"tray");
     join_path(playlist,sizeof(playlist),argv[2],"discs.m3u"); join_path(tray_info,sizeof(tray_info),tray,"gamewave.diz");
@@ -121,6 +131,24 @@ int main(int argc, char **argv)
     option_version = 1; extended_disks = false; p_environment(environment); p_init();
     CHECK(v1_options == 1 && !legacy_options && disk.set_image_index); p_deinit();
     option_version = 0; p_environment(environment); p_init(); CHECK(legacy_options == 1); p_deinit();
+    CHECK(info_logs && error_logs);
+    vfs_enabled = true;
+#ifdef _WIN32
+    CHECK(_fullpath(physical_root,argv[2],sizeof(physical_root)));
+#else
+    CHECK(realpath(argv[2],physical_root));
+#endif
+    normalize_path(physical_root); join_path(virtual_root,sizeof(virtual_root),physical_root,"virtual");
+    char virtual_playlist[4096], virtual_save[4096];
+    join_path(virtual_playlist,sizeof(virtual_playlist),virtual_root,"discs.m3u");
+    join_path(virtual_save,sizeof(virtual_save),virtual_root,"saves"); strcpy(save_directory,virtual_save);
+    FILE *invisible = fopen(virtual_playlist,"rb"); CHECK(!invisible);
+    p_environment(environment); p_init(); game.path = virtual_playlist; CHECK(p_load(&game));
+    p_run(); buttons[0] = 1 << RETRO_DEVICE_ID_JOYPAD_A; p_run(); buttons[0] = 0; p_run(); p_unload();
+    CHECK(vfs_reads && vfs_writes && vfs_renames && !vfs_open_files && !vfs_open_dirs);
+    /* A VFS rejection must not cause the core to bypass frontend access policy. */
+    vfs_deny = true; game.path = playlist; CHECK(!p_load(&game)); vfs_deny = false; p_deinit();
+    CHECK(!vfs_open_files && !vfs_open_dirs);
     close_library(lib);
-    puts("PASS: extended disks, core options, frontend SRAM, memory maps and cheats"); return 0;
+    puts("PASS: extended disks, core options, SRAM, memory maps, cheats, VFS and structured logging"); return 0;
 }

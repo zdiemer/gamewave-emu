@@ -26,24 +26,26 @@ sealed class CoreSession : IDisposable
     readonly string _cache;
     readonly SaveStore _saves;
     readonly Action<string> _log;
+    readonly GameWave.Disc.FileSystem _fileSystem;
     string? _loadedPath;
     bool _ejected;
     bool _speculative;
     public FrontendMemory Memory { get; } = new();
     readonly SortedDictionary<uint, CoreCheat> _cheats = new();
 
-    public CoreSession(string content, string saveDirectory, Action<string> log, uint initialIndex = 0, string? initialPath = null)
+    public CoreSession(string content, string saveDirectory, Action<string> log, uint initialIndex = 0, string? initialPath = null, GameWave.Disc.FileSystem? fileSystem = null)
     {
         _log = log;
+        _fileSystem = fileSystem ?? LocalFileSystem.Instance;
         _cache = Path.Combine(saveDirectory, "gamewave", "unpacked");
-        _saves = new SaveStore(Path.Combine(saveDirectory, "gamewave", "gamewave.saves"));
+        _saves = new SaveStore(Path.Combine(saveDirectory, "gamewave", "gamewave.saves"), _fileSystem);
         _saves.WriteThrough = false;
         Memory.Export(_saves);
         content = Path.GetFullPath(content);
         if (Path.GetExtension(content).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
         {
             string? label = null;
-            foreach (var line in File.ReadLines(content))
+            foreach (var line in _fileSystem.ReadLines(content))
             {
                 var entry = line.Trim();
                 if (entry.StartsWith("#LABEL:", StringComparison.OrdinalIgnoreCase)) label = entry[7..].Trim();
@@ -80,7 +82,7 @@ sealed class CoreSession : IDisposable
     {
         if (Path.GetFileName(path).Equals("gamewave.diz", StringComparison.OrdinalIgnoreCase))
             path = Path.GetDirectoryName(path)!;
-        return DiscLoader.Open(path, _cache);
+        return DiscLoader.Open(path, _cache, fileSystem: _fileSystem);
     }
 
     void Load(string path)

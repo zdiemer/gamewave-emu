@@ -156,7 +156,7 @@ cross a host disc change. Save-state history belongs to the inserted disc.
 | Frontend-managed save RAM | Stable 4 MiB SRAM buffer; frontend loads, autosaves and netplay SRAM imports are applied before emulation. |
 | Cheats and memory maps | SRAM memory descriptor plus flash-offset and named Lua-integer cheats. The high-level engine has no hardware CPU RAM map. |
 | Core options v2 | Categorized English options with descriptions and labels; v1 and legacy fallback. |
-| VFS and log interfaces | Disc and save I/O use the OS filesystem; errors use frontend messages, without a structured log callback. |
+| VFS and log interfaces | VFS v3 for discs, playlists, ZIP cache and flash files; OS fallback when unavailable. Queued structured logs on the frontend thread, with error-message fallback. |
 | Netplay | No frontend validation yet; deterministic local replay alone does not establish netplay compatibility. |
 
 Rumble, analog controls, hardware rendering, and microphone input have no Game

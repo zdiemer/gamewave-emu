@@ -19,11 +19,21 @@ public static class ZipDisc
             .FirstOrDefault();
 
     /// <summary>Where the cache keeps the image from <paramref name="zipPath"/>.</summary>
-    public static string CachePath(string zipPath, string cacheDirectory)
+    public static string CachePath(string zipPath, string cacheDirectory, FileSystem? fileSystem = null)
     {
-        var info = new FileInfo(zipPath);
+        fileSystem ??= LocalFileSystem.Instance;
+        var info = fileSystem.Stat(zipPath) ?? throw new FileNotFoundException(zipPath);
         // The size and write time tell a replaced archive from the one that was unpacked.
-        var stamp = $"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}";
+        var stamp = $"{info.Length:x}-{info.WriteTime.Ticks:x}";
+        if (info.WriteTime == default)
+        {
+            // VFS v3 has no timestamps. The zip directory identifies replaced images
+            // without hashing an entire DVD on every load.
+            using var input = fileSystem.OpenRead(zipPath);
+            using var archive = new ZipArchive(input, ZipArchiveMode.Read);
+            var entry = FindImage(archive) ?? throw new InvalidDataException("The archive has no ISO image.");
+            stamp = $"{info.Length:x}-{entry.Length:x}-{entry.Crc32:x}";
+        }
         var name = Path.GetFileNameWithoutExtension(zipPath);
         foreach (var bad in Path.GetInvalidFileNameChars())
             name = name.Replace(bad, '_');
@@ -39,30 +49,35 @@ public static class ZipDisc
     /// from 0 to 1. The image is written under a temporary name and renamed when complete,
     /// so an interrupted unpack is never mistaken for a finished one.
     /// </summary>
-    public static string Unpack(string zipPath, string cacheDirectory, int keep, IProgress<double>? progress = null, CancellationToken cancel = default)
+    public static string Unpack(string zipPath, string cacheDirectory, int keep, IProgress<double>? progress = null, CancellationToken cancel = default, FileSystem? fileSystem = null)
     {
-        var target = CachePath(zipPath, cacheDirectory);
-        if (File.Exists(target))
+        fileSystem ??= LocalFileSystem.Instance;
+        var target = CachePath(zipPath, cacheDirectory, fileSystem);
+        if (fileSystem.FileExists(target))
         {
-            File.SetLastAccessTimeUtc(target, DateTime.UtcNow);
+            fileSystem.Touch(target);
             return target;
         }
 
-        Directory.CreateDirectory(cacheDirectory);
-        using var zip = ZipFile.OpenRead(zipPath);
+        fileSystem.CreateDirectory(cacheDirectory);
+        using var zipStream = fileSystem.OpenRead(zipPath);
+        using var zip = new ZipArchive(zipStream, ZipArchiveMode.Read);
         var entry = FindImage(zip) ?? throw new InvalidDataException($"{Path.GetFileName(zipPath)} holds no .iso disc image");
 
-        var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(cacheDirectory))!);
-        if (drive.IsReady && drive.AvailableFreeSpace < entry.Length + (256L << 20))
-            throw new IOException($"not enough free space in {cacheDirectory} to unpack {Path.GetFileName(zipPath)} ({entry.Length >> 20} MB)");
+        if (fileSystem is LocalFileSystem)
+        {
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(cacheDirectory))!);
+            if (drive.IsReady && drive.AvailableFreeSpace < entry.Length + (256L << 20))
+                throw new IOException($"not enough free space in {cacheDirectory} to unpack {Path.GetFileName(zipPath)} ({entry.Length >> 20} MB)");
+        }
 
-        Prune(cacheDirectory, Math.Max(0, keep - 1));
+        Prune(cacheDirectory, Math.Max(0, keep - 1), fileSystem);
 
         var partial = target + ".partial";
         try
         {
             using (var input = entry.Open())
-            using (var output = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+            using (var output = fileSystem.Create(partial))
             {
                 output.SetLength(entry.Length);
                 var buffer = new byte[4 << 20];
@@ -78,35 +93,38 @@ public static class ZipDisc
                 if (done != entry.Length)
                     throw new InvalidDataException($"{Path.GetFileName(zipPath)} ended early: {done} of {entry.Length} bytes");
             }
-            File.Move(partial, target, true);
+            fileSystem.Move(partial, target);
         }
         catch
         {
-            TryDelete(partial);
+            TryDelete(partial, fileSystem);
             throw;
         }
         return target;
     }
 
     /// <summary>Removes cached images beyond the <paramref name="keep"/> most recently used.</summary>
-    public static void Prune(string cacheDirectory, int keep)
+    public static void Prune(string cacheDirectory, int keep, FileSystem? fileSystem = null)
     {
-        if (!Directory.Exists(cacheDirectory))
+        fileSystem ??= LocalFileSystem.Instance;
+        if (!fileSystem.DirectoryExists(cacheDirectory))
             return;
-        var images = new DirectoryInfo(cacheDirectory).GetFiles("*.iso")
-            .OrderByDescending(f => f.LastAccessTimeUtc > f.LastWriteTimeUtc ? f.LastAccessTimeUtc : f.LastWriteTimeUtc)
+        var entries = fileSystem.List(cacheDirectory);
+        var images = entries.Where(e => !e.IsDirectory && e.Name.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.AccessTime > f.WriteTime ? f.AccessTime : f.WriteTime)
+            .ThenBy(f => f.Name, StringComparer.Ordinal)
             .ToList();
         foreach (var old in images.Skip(keep))
-            TryDelete(old.FullName);
-        foreach (var partial in Directory.EnumerateFiles(cacheDirectory, "*.partial"))
-            TryDelete(partial);
+            TryDelete(Path.Combine(cacheDirectory, old.Name), fileSystem);
+        foreach (var partial in entries.Where(e => !e.IsDirectory && e.Name.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)))
+            TryDelete(Path.Combine(cacheDirectory, partial.Name), fileSystem);
     }
 
-    static void TryDelete(string path)
+    static void TryDelete(string path, FileSystem fileSystem)
     {
         try
         {
-            File.Delete(path);
+            fileSystem.Delete(path);
         }
         catch (IOException)
         {
