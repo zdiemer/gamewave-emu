@@ -247,6 +247,14 @@ requires closing the frontend first.
 
 ## Verification
 
+Linux x64 validation in Ubuntu 24.04 under WSL2 passes all 89 managed tests,
+the three native synthetic probes, and a 3600-frame Zap 21 content probe with
+changing video, audible PCM, movie rewind, and state restoration after reload.
+Retail deterministic replay matches video, audio, and state bytes through frame
+2999. The self-contained standalone player also completes 60 seconds of headless
+retail playback with scheduled SEL input and screenshots. These checks do not
+validate Linux desktop devices or a real RetroArch session.
+
 Windows x64 validation includes the native ABI smoke test and a 3600-frame run
 of Zap 21 in RetroArch 1.22.2 with its SDL audio driver. The retail-content probe
 also verifies video, audio and SEL input through the native library for one minute.

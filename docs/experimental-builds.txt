@@ -5,9 +5,10 @@ ABI checks do not establish compatibility with real games or frontend setups.
 GUI presentation, physical controllers, audio devices, and RetroArch/netplay on
 these platforms remain untested. macOS and Linux ARM64 have no manual validation.
 
-Linux x64 is being checked in Ubuntu 24.04 under WSL2. See the release notes and
-README for the completed checks. WSL results do not establish compatibility with
-every Linux distribution or a native Linux desktop.
+Linux x64 passed 89 managed tests, native libretro ABI/interface and deterministic
+replay probes, and headless Zap 21 playback in Ubuntu 24.04 under WSL2. WSL results
+do not establish compatibility with every Linux distribution or a native Linux
+desktop. See the release notes and README for the completed checks and limits.
 
 macOS binaries are signed ad hoc, not notarized.
 
