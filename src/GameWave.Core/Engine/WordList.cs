@@ -14,6 +14,7 @@ public sealed class WordList
     WordList(byte[] data) => _data = data;
 
     public static WordList Load(byte[] data) => new(data);
+    internal byte[] StateData => _data;
 
     /// <summary>Whether a word is in the dictionary. Words are looked up in lower case.</summary>
     public bool Contains(string word)

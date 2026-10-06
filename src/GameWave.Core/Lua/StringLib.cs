@@ -268,30 +268,31 @@ public static class StringLib
         string s = a.Str(1);
         string p = a.Str(2);
         return a.Return(GFindIterator(s, p, 0));
+    }
 
-        static LuaNative GFindIterator(string s, string p, int start)
+    internal static LuaNative GFindIterator(string s, string p, int start)
+    {
+        int pos = start;
+        return new LuaNative("gfind_iterator", b =>
         {
-            int pos = start;
-            return new LuaNative("gfind_iterator", b =>
+            var ms = new MatchState(s, p, b.L);
+            for (int src = pos; src <= s.Length; src++)
             {
-                var ms = new MatchState(s, p, b.L);
-                for (int src = pos; src <= s.Length; src++)
+                ms.Level = 0;
+                int e = ms.Match(src, 0);
+                if (e >= 0)
                 {
-                    ms.Level = 0;
-                    int e = ms.Match(src, 0);
-                    if (e >= 0)
-                    {
-                        int newStart = e;
-                        if (e == src)
-                            newStart++;
-                        pos = newStart;
-                        return ms.PushCaptures(src, e, true);
-                    }
+                    int newStart = e;
+                    if (e == src)
+                        newStart++;
+                    pos = newStart;
+                    return ms.PushCaptures(src, e, true);
                 }
-                pos = s.Length + 1;
-                return 0;
-            }, _ => GFindIterator(s, p, pos));
-        }
+            }
+            pos = s.Length + 1;
+            return 0;
+        }, _ => GFindIterator(s, p, pos))
+        { IteratorState = () => (s, p, pos) };
     }
 
     static int GSub(LuaArgs a)

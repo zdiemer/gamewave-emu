@@ -66,7 +66,7 @@ public sealed class TrayTests : IDisposable
     }
 
     /// <summary>Lua 5.0 bytecode in the Game Wave's layout, as <see cref="ZbcLoader"/> reads it.</summary>
-    static byte[] Bytecode(LuaProto p)
+    internal static byte[] Bytecode(LuaProto p)
     {
         var s = new MemoryStream();
         s.Write([0x1B, (byte)'Z', (byte)'B', (byte)'C', 0x0A, 0x1A, 0x50, 1, 0, 1, 1, 4, 4, 4, 6, 8, 9, 9, 4]);
@@ -112,7 +112,8 @@ public sealed class TrayTests : IDisposable
                 Str(s, k.AsString!);
             }
         }
-        Int(s, 0); // nested functions
+        Int(s, p.Protos.Length);
+        foreach (var nested in p.Protos) Function(s, nested);
         Int(s, p.Code.Length);
         foreach (var i in p.Code)
             Int(s, unchecked((int)i));

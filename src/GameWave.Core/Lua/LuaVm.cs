@@ -23,6 +23,9 @@ public sealed partial class LuaThread
         {
             while (true)
             {
+                // Branches change the local PC after decoding an instruction. Publish
+                // that next PC before a host boundary can capture the Lua stack.
+                f.Pc = pc;
                 if (S.InstructionBoundary?.Invoke() == true)
                     goto newFrame;
                 uint i = code[pc++];

@@ -145,6 +145,8 @@ static unsafe class Exports
     [UnmanagedCallersOnly(EntryPoint = "retro_init", CallConvs = [typeof(CallConvCdecl)])]
     public static void Init()
     {
+        ulong quirks = 1; // INCOMPLETE: background movie decoding prevents frame-exact replay.
+        if (!Env(87, &quirks)) Env(44, &quirks); // Historical stable command number.
         try
         {
             Unload();
@@ -330,13 +332,34 @@ static unsafe class Exports
         catch (Exception error) { Error(error); return 0; }
     }
 
-    // Quicksave contains managed object graphs; do not misrepresent it as a portable state.
     [UnmanagedCallersOnly(EntryPoint = "retro_serialize_size", CallConvs = [typeof(CallConvCdecl)])]
-    public static nuint SerializeSize() => 0;
+    public static nuint SerializeSize() => _session is null ? 0 : (nuint)CoreSession.StateSize;
     [UnmanagedCallersOnly(EntryPoint = "retro_serialize", CallConvs = [typeof(CallConvCdecl)])]
-    public static byte Serialize(void* data, nuint size) => 0;
+    public static byte Serialize(void* data, nuint size)
+    {
+        if (data == null || size < CoreSession.StateSize || size > int.MaxValue || _session is null) return 0;
+        try
+        {
+            byte[] state = _session.SaveState(Input);
+            if (state.Length > CoreSession.StateSize) return 0;
+            var destination = new Span<byte>(data, CoreSession.StateSize);
+            destination.Clear(); state.CopyTo(destination);
+            return 1;
+        }
+        catch (Exception error) { Error(error); return 0; }
+    }
     [UnmanagedCallersOnly(EntryPoint = "retro_unserialize", CallConvs = [typeof(CallConvCdecl)])]
-    public static byte Unserialize(void* data, nuint size) => 0;
+    public static byte Unserialize(void* data, nuint size)
+    {
+        if (data == null || size < 84 || size > CoreSession.StateSize || _session is null) return 0;
+        try
+        {
+            _session.LoadState(new ReadOnlySpan<byte>(data, (int)size), Input);
+            _failed = false;
+            return 1;
+        }
+        catch (Exception error) { Error(error); return 0; }
+    }
     [UnmanagedCallersOnly(EntryPoint = "retro_get_memory_data", CallConvs = [typeof(CallConvCdecl)])]
     public static void* GetMemoryData(uint id) => null;
     [UnmanagedCallersOnly(EntryPoint = "retro_get_memory_size", CallConvs = [typeof(CallConvCdecl)])]

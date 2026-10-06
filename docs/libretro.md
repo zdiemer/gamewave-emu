@@ -106,9 +106,25 @@ emulator's save format. Back up this file to preserve saves. When the frontend
 does not supply a save directory, the core uses the user's local application data
 directory under `gamewave-libretro`.
 
-Libretro save states, rewind, runahead, cheats and exposed RAM are unsupported.
-The engine's standalone quicksave is an in-memory object snapshot and cannot be
-written as a libretro state file. Game-script or loading errors appear as frontend
+Use the frontend's **Save State** and **Load State** commands for portable snapshots.
+States restore Lua execution, graphics and animations, queued input and remote repeat
+timing, sound effects, movie position, open files, and the console's flash slots.
+They can be loaded after resetting the game or restarting the frontend. Loading a
+state also restores `gamewave.saves`, including high scores and settings.
+
+Keep the same disc content and core state-format version. For a playlist, insert
+the saved disc at its original index before loading. Saving requires a running
+game with the tray closed. A save attempted inside a nested Lua callback may fail;
+retry after the callback returns. Damaged, truncated, incompatible and wrong-disc
+states are rejected before replacing the running game.
+
+The serialization buffer stays at 64 MiB for a loaded session. The state contains
+a compressed, checksummed payload and a zero-filled tail; enable frontend state
+compression to keep files small. The uncompressed payload limit is 128 MiB.
+Movie decoding resumes from the saved timeline by decoding the disc again; its
+background scheduling is not deterministic. The core advertises basic save states
+and the incomplete serialization quirk. Rewind, runahead, netplay, cheats and
+exposed RAM remain unsupported. Game-script or loading errors appear as frontend
 messages.
 
 Native AOT [does not support unloading its runtime](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/libraries).
@@ -122,6 +138,8 @@ requires closing the frontend first.
 Windows x64 validation includes the native ABI smoke test and a 3600-frame run
 of Zap 21 in RetroArch 1.22.2 with its SDL audio driver. The retail-content probe
 also verifies video, audio and SEL input through the native library for one minute.
+Save-state validation includes movie rewind and restoration after core reload in
+the retail probe, and RetroArch auto-save/auto-load across process restarts.
 
 ```sh
 dotnet test -c Release
@@ -131,7 +149,9 @@ dotnet test -c Release
 published native library through the OS loader. It creates original synthetic
 disc content and checks all required exports, failed loads, frame/audio callbacks,
 six remotes, number chords, keyboard input, reset, save-file creation, disc swapping,
-and unload/reload. No retail disc is needed for this test.
+and unload/reload. State checks include saving before the first frame, independent
+snapshots, corruption rejection, restoration after reset and core reload, and
+loading a saved file in a separate process. No retail disc is needed for this test.
 
 From an x64 Visual Studio developer prompt after publishing:
 
@@ -151,5 +171,7 @@ artifacts/libretro/smoke "$PWD/artifacts/libretro/linux-x64/gamewave_libretro.so
 it with the same compiler flags as `smoke.c`, then run
 `content CORE OUTPUT_DIRECTORY DISC [FRAMES]` with absolute paths. It runs at
 60 Hz, checks changing video and audible samples, presses SEL after 40 and 50
-seconds, and writes BMP screenshots every 600 frames. The default is 3600 frames
-(one minute). Retail disc images remain outside the repository.
+seconds, rewinds an intro movie, restores a later state after core deinitialization
+and reload, and writes BMP screenshots every 600 frames. The default is 3600 frames
+(one minute), followed by 120 restored frames. Retail disc images remain outside
+the repository.

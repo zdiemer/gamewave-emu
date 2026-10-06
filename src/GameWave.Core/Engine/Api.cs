@@ -46,9 +46,9 @@ public sealed partial class Machine
     DiscFile? FindInResource(int resource, string name)
         => Disc.Find(DiscPath.Combine(ResourceDir(resource), name));
 
-    void RegisterApi(LuaState L)
+    void RegisterApi(LuaState L, bool reset = true)
     {
-        ResetApiState();
+        if (reset) ResetApiState();
         RegisterGl(L);
         RegisterText(L);
         RegisterMedia(L);
@@ -586,7 +586,10 @@ public sealed partial class Machine
                     CheckStop();
                     WaitWhilePaused();
                     if (Input.TryTake(out var e, Clock.Now))
+                    {
+                        _resumeSleepUntil = null;
                         return a.Return(e.Key, e.Remote, (int)e.Timestamp);
+                    }
                     if (_frames is null)
                         Input.WaitForAny(20);
                     else

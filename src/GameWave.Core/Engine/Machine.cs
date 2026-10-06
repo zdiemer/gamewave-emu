@@ -57,6 +57,8 @@ public sealed partial class Machine : IDisposable
     int _pollCount;
     readonly FrameStepper? _frames;
     int _frameInstructions;
+    bool _portableResume;
+    double? _sleepUntil, _resumeSleepUntil;
 
     public Machine(IDisc disc, SaveStore saves, bool frameDriven = false)
     {
@@ -105,6 +107,8 @@ public sealed partial class Machine : IDisposable
         _stopRequested = false;
         _frames?.Begin();
         _frameInstructions = _pollCount = 0;
+        _sleepUntil = _resumeSleepUntil = null;
+        _portableResume = false;
         State = MachineState.Running;
         CrashMessage = null;
         _thread = new Thread(GameThread) { IsBackground = true, Name = "Game Wave game" };
@@ -183,6 +187,7 @@ public sealed partial class Machine : IDisposable
         Disc = disc;
         Info = info;
         _engineResources = null;
+        _stateIdentity = null;
         Start();
     }
 
@@ -197,7 +202,6 @@ public sealed partial class Machine : IDisposable
     {
         try
         {
-            _frames?.AdvanceTo(Clock.NowSeconds);
             GameThreadLoop();
         }
         catch (MachineStoppedException)
@@ -224,6 +228,10 @@ public sealed partial class Machine : IDisposable
                     State = MachineState.Finished;
                     Emit("The game program ended.");
                 }
+            }
+            catch (PortableStateRestoredException)
+            {
+                continue;
             }
             catch (MachineStoppedException)
             {
@@ -266,10 +274,30 @@ public sealed partial class Machine : IDisposable
 
     void RunGame()
     {
-        var file = Disc.Find(Info.AppFile) ?? throw new FileNotFoundException($"the game program {Info.AppFile} is not on the disc");
-        var proto = ZbcLoader.Load(file.ReadAll(), Info.AppFile);
-        var L = new LuaState { Output = s => Emit(s.TrimEnd('\n')) };
+        LuaState L;
+        if (_portableResume)
+        {
+            _portableResume = false;
+            L = _lua!;
+        }
+        else
+        {
+            var file = Disc.Find(Info.AppFile) ?? throw new FileNotFoundException($"the game program {Info.AppFile} is not on the disc");
+            var proto = ZbcLoader.Load(file.ReadAll(), Info.AppFile);
+            L = CreateLuaState(reset: true);
+            L.MainThread.Push(LuaValue.Function(L.Load(proto)));
+            L.MainThread.PreCall(0, LuaThread.MultRet);
+            L.MainThread.Frames[0].Boundary = true;
+            L.MainThread.NativeDepth = 1;
+        }
         _lua = L;
+        _frames?.AdvanceTo(Clock.NowSeconds);
+        L.MainThread.Execute();
+    }
+
+    LuaState CreateLuaState(bool reset)
+    {
+        var L = new LuaState { Output = s => Emit(s.TrimEnd('\n')) };
         L.InstructionBoundary = () =>
         {
             if (_frames is not null && ++_frameInstructions >= 10000)
@@ -283,9 +311,8 @@ public sealed partial class Machine : IDisposable
         };
         BaseLib.Open(L);
         StringLib.Open(L);
-        RegisterApi(L);
-        var main = L.Load(proto);
-        L.MainThread.Call(LuaValue.Function(main));
+        RegisterApi(L, reset);
+        return L;
     }
 
     internal void Emit(string message) => Log?.Invoke(message);
@@ -379,7 +406,10 @@ public sealed partial class Machine : IDisposable
         if (_frames is not null)
         {
             CheckStop();
-            _frames.AdvanceTo(Clock.NowSeconds + Math.Max(0, ms) / 1000.0);
+            _sleepUntil = _resumeSleepUntil ?? Clock.NowSeconds + Math.Max(0, ms) / 1000.0;
+            _resumeSleepUntil = null;
+            _frames.AdvanceTo(_sleepUntil.Value);
+            _sleepUntil = null;
             return;
         }
         long until = Clock.Now + Math.Max(0, ms);

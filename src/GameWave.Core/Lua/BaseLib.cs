@@ -73,6 +73,7 @@ public static class BaseLib
             var v = t.Get(i);
             return v.IsNil ? a.Return(LuaValue.Nil) : a.Return(i, v);
         });
+        S.NativeFunctions[ipairsIter.Name] = ipairsIter;
         S.Register("ipairs", a => a.Return(ipairsIter, a.Table(1), 0));
         S.Register("unpack", a =>
         {
@@ -237,27 +238,28 @@ public static class BaseLib
                 var co = a.State.NewThread(a.Function(1));
                 return a.Return(WrapCoroutine(co));
             }));
+    }
 
-        static LuaNative WrapCoroutine(LuaThread coroutine)
+    internal static LuaNative WrapCoroutine(LuaThread coroutine)
+    {
+        return new LuaNative("wrap", b =>
         {
-            return new LuaNative("wrap", b =>
+            var args = new LuaValue[b.Count];
+            for (int i = 0; i < args.Length; i++)
+                args[i] = b[i + 1];
+            var r = coroutine.Resume(b.L, args, out bool ok);
+            if (!ok)
             {
-                var args = new LuaValue[b.Count];
-                for (int i = 0; i < args.Length; i++)
-                    args[i] = b[i + 1];
-                var r = coroutine.Resume(b.L, args, out bool ok);
-                if (!ok)
-                {
-                    var e = r.Length > 0 ? r[0] : LuaValue.Nil;
-                    if (e.IsString)
-                        e = LuaValue.String(b.L.Where(1) + e.AsString);
-                    throw new LuaException(e);
-                }
-                foreach (var v in r)
-                    b.L.Push(v);
-                return r.Length;
-            }, clone => WrapCoroutine(clone(coroutine)));
-        }
+                var e = r.Length > 0 ? r[0] : LuaValue.Nil;
+                if (e.IsString)
+                    e = LuaValue.String(b.L.Where(1) + e.AsString);
+                throw new LuaException(e);
+            }
+            foreach (var v in r)
+                b.L.Push(v);
+            return r.Length;
+        }, clone => WrapCoroutine(clone(coroutine)))
+        { WrappedThread = coroutine };
     }
 
     // ---------------------------------------------------------------- table
@@ -287,6 +289,8 @@ public static class BaseLib
         if (Sizes.TryGetValue(source, out var size))
             Sizes.AddOrUpdate(destination, new StrongBox<int>(size.Value));
     }
+
+    internal static int? SavedTableSize(LuaTable table) => Sizes.TryGetValue(table, out var size) ? size.Value : null;
 
     static void OpenTable(LuaState S)
     {

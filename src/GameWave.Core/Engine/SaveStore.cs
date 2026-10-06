@@ -71,6 +71,16 @@ public sealed class SaveStore
         }
     }
 
+    internal void RestoreSlots(IEnumerable<Slot> slots)
+    {
+        lock (_gate)
+        {
+            _slots.Clear();
+            _slots.AddRange(slots);
+            Save();
+        }
+    }
+
     // File layout: "GWSAVE1\0", count, then per slot: id, game name, slot name, data.
     void Load(byte[] b)
     {

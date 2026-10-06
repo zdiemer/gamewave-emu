@@ -16,7 +16,7 @@ namespace GameWave.Graphics;
 /// </code>
 /// All fields are 32-bit little endian.
 /// </summary>
-public sealed class Font
+public sealed partial class Font
 {
     public string Family { get; private set; } = "";
     public string SheetName { get; private set; } = "";

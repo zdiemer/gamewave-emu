@@ -14,6 +14,7 @@ public sealed class LuaState
     /// replaced and the interpreter must reload its current frame.
     /// </summary>
     internal Func<bool>? InstructionBoundary { get; set; }
+    internal Dictionary<string, LuaNative> NativeFunctions { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Where <c>print</c> and the engine's log output go.</summary>
     public Action<string> Output { get; set; } = Console.WriteLine;
@@ -28,7 +29,12 @@ public sealed class LuaState
 
     public LuaClosure Load(LuaProto proto) => new(proto, Globals);
 
-    public void Register(string name, LuaNativeFn fn) => Globals[name] = new LuaNative(name, fn);
+    public void Register(string name, LuaNativeFn fn)
+    {
+        var native = new LuaNative(name, fn);
+        NativeFunctions[name] = native;
+        Globals[name] = native;
+    }
 
     public LuaTable RegisterModule(string module, params (string Name, LuaNativeFn Fn)[] fns)
     {
@@ -39,7 +45,11 @@ public sealed class LuaState
             Globals[module] = t;
         }
         foreach (var (name, fn) in fns)
-            t[name] = new LuaNative($"{module}.{name}", fn);
+        {
+            var native = new LuaNative($"{module}.{name}", fn);
+            NativeFunctions[native.Name] = native;
+            t[name] = native;
+        }
         return t;
     }
 

@@ -6,6 +6,29 @@ sealed class FrameStepper(EmuClock clock)
     readonly object _gate = new();
     double _end;
     bool _waiting, _finished, _cancelled;
+    bool _restore;
+
+    public T AtBoundary<T>(Func<T> action, bool restore = false)
+    {
+        lock (_gate)
+        {
+            var deadline = Environment.TickCount64 + 5000;
+            while (!_waiting && !_finished && !_cancelled)
+            {
+                long remaining = deadline - Environment.TickCount64;
+                if (remaining <= 0) throw new TimeoutException("The game did not reach a save-state boundary.");
+                Monitor.Wait(_gate, (int)remaining);
+            }
+            if (_cancelled || _finished) throw new InvalidOperationException("The game is not running.");
+            T result = action();
+            if (restore)
+            {
+                _end = clock.NowSeconds;
+                _restore = true;
+            }
+            return result;
+        }
+    }
 
     public void Begin()
     {
@@ -13,6 +36,7 @@ sealed class FrameStepper(EmuClock clock)
         {
             _end = clock.NowSeconds;
             _waiting = _finished = _cancelled = false;
+            _restore = false;
         }
     }
 
@@ -44,6 +68,11 @@ sealed class FrameStepper(EmuClock clock)
             {
                 if (_cancelled)
                     throw new MachineStoppedException();
+                if (_restore)
+                {
+                    _restore = false;
+                    throw new PortableStateRestoredException();
+                }
                 if (clock.NowSeconds >= _end)
                 {
                     _waiting = true;

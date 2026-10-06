@@ -10,6 +10,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include <process.h>
 #define mkdir_one(path) _mkdir(path)
 #define pause_ms(ms) Sleep(ms)
 typedef HMODULE library_t;
@@ -20,6 +21,7 @@ static void close_library(library_t lib) { FreeLibrary(lib); }
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #define mkdir_one(path) mkdir(path, 0755)
 #define pause_ms(ms) usleep((ms) * 1000)
 typedef void *library_t;
@@ -49,6 +51,8 @@ static bool RETRO_CALLCONV environment(unsigned cmd, void *data)
 {
     switch (cmd) {
         case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: CHECK(!*(bool *)data); return true;
+        case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
+            CHECK(*(uint64_t *)data == RETRO_SERIALIZATION_QUIRK_INCOMPLETE); return true;
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
             CHECK(*(enum retro_pixel_format *)data == RETRO_PIXEL_FORMAT_XRGB8888);
             return !reject_pixel;
@@ -214,8 +218,9 @@ static void load_api(library_t lib)
 
 int main(int argc, char **argv)
 {
-    CHECK(argc == 3);
-    char content[4096], tray[4096], playlist[4096], save[4096];
+    CHECK(argc == 3 || (argc == 4 && strcmp(argv[3],"--restore") == 0));
+    char content[4096], tray[4096], playlist[4096], save[4096], state_path[4096];
+    join_path(state_path,sizeof(state_path),argv[2],"portable.state");
     join_path(save_directory,sizeof(save_directory),argv[2],"saves");
     join_path(content,sizeof(content),argv[2],"disc");
     join_path(tray,sizeof(tray),argv[2],"tray");
@@ -235,10 +240,21 @@ int main(int argc, char **argv)
     unsigned expected_messages = messages;
     game.path = playlist; reject_pixel = true; CHECK(!p_load(&game)); reject_pixel = false; expected_messages++;
     CHECK(p_load(&game));
+    size_t state_size = p_serialize_size(); CHECK(state_size > 0 && state_size <= 128 * 1024 * 1024);
+    unsigned char *state = (unsigned char *)malloc(state_size); CHECK(state);
+    if (argc == 4) {
+        f = fopen(state_path,"rb"); CHECK(f); CHECK(fread(state,1,state_size,f) == state_size); fclose(f);
+        CHECK(p_unserialize(state,state_size)); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
+        keyboard.callback(true,RETROK_3,0,0); p_run(); CHECK(pixel_x == 3 && pixel_y == 1);
+        p_unload(); p_deinit(); close_library(lib); free(state);
+        puts("PASS: restored a portable state in a fresh process"); return 0;
+    }
     struct retro_system_av_info av = {0}; p_av(&av);
     CHECK(av.geometry.base_width == 720 && av.geometry.base_height == 480 && av.geometry.aspect_ratio > 1.33f && av.geometry.aspect_ratio < 1.34f);
     CHECK(av.timing.fps == 60 && av.timing.sample_rate == 44100);
-    CHECK(p_serialize_size() == 0 && !p_serialize(NULL,0) && !p_unserialize(NULL,0));
+    CHECK(!p_serialize(NULL,0) && !p_unserialize(NULL,0));
+    CHECK(!p_serialize(state,state_size-1));
+    CHECK(p_serialize(state,state_size)); CHECK(p_unserialize(state,state_size)); // Before first retro_run.
     CHECK(disk.get_num_images() == 2 && !disk.get_eject_state() && !disk.set_image_index(1));
     for (int i = 0; i < 60; i++) p_run();
     fprintf(stderr,"frames=%u polls=%u audio=%u heard=%d pixel=%d,%d\n",video_calls,poll_calls,audio_calls,heard_audio,pixel_x,pixel_y);
@@ -261,7 +277,17 @@ int main(int argc, char **argv)
     keyboard.callback(true,RETROK_a,0,RETROKMOD_CTRL); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
     p_audio_batch(NULL); unsigned previous_samples = audio_samples; p_run(); CHECK(audio_samples - previous_samples == 735); p_audio_batch(audio_batch);
     pause_ms(50); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
+    CHECK(p_serialize_size() == state_size && p_serialize(state,state_size));
+    f = fopen(state_path,"wb"); CHECK(f); CHECK(fwrite(state,1,state_size,f) == state_size); fclose(f);
+    keyboard.callback(true,RETROK_2,0,0); p_run(); CHECK(pixel_x == 2 && pixel_y == 6);
+    unsigned char *second = (unsigned char *)malloc(state_size); CHECK(second && p_serialize(second,state_size));
+    CHECK(p_unserialize(state,state_size)); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
+    CHECK(p_unserialize(second,state_size)); p_run(); CHECK(pixel_x == 2 && pixel_y == 6); free(second);
+    state[44] ^= 1; CHECK(!p_unserialize(state,state_size)); state[44] ^= 1; expected_messages++;
+    CHECK(!p_unserialize(state,100)); expected_messages++;
+    p_run(); CHECK(pixel_x == 2 && pixel_y == 6);
     p_reset(); p_run(); CHECK(pixel_x == 0 && pixel_y == 0);
+    CHECK(p_unserialize(state,state_size)); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
     CHECK(disk.set_eject_state(true)); CHECK(disk.set_image_index(1)); CHECK(disk.set_eject_state(false)); p_run();
     CHECK(disk.get_eject_state()); /* The fixture opened its own tray. */
     CHECK(disk.set_image_index(0)); CHECK(disk.set_eject_state(false)); p_run(); CHECK(pixel_x == 0 && pixel_y == 0);
@@ -274,10 +300,20 @@ int main(int argc, char **argv)
     CHECK(disk.set_eject_state(false)); p_run(); CHECK(pixel_x == 0 && pixel_y == 0);
     CHECK(disk.set_eject_state(true)); CHECK(disk.replace_image_index(2,NULL)); CHECK(disk.set_image_index(0)); CHECK(disk.set_eject_state(false));
     p_unload(); CHECK(disk.get_num_images() == 0); CHECK(p_load(&game)); p_run(); p_unload();
+    CHECK(p_serialize_size() == 0 && !p_unserialize(state,state_size));
     CHECK(messages == expected_messages);
     p_deinit(); close_library(lib);
     /* Frontends unload and reload cores. Native AOT must remain resident safely. */
-    lib = open_library(argv[1]); CHECK(lib); load_api(lib); p_init(); CHECK(p_load(&game)); p_run(); p_unload(); p_deinit(); close_library(lib);
-    puts("PASS: native exports, lifecycle, video, audio, six remotes, keyboard, saves, playlists and disc swapping");
+    lib = open_library(argv[1]); CHECK(lib); load_api(lib); p_init(); CHECK(p_load(&game));
+    CHECK(p_unserialize(state,state_size)); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
+    p_unload(); p_deinit(); close_library(lib); free(state);
+#ifdef _WIN32
+    CHECK(_spawnl(_P_WAIT,argv[0],argv[0],argv[1],argv[2],"--restore",NULL) == 0);
+#else
+    pid_t child = fork(); CHECK(child >= 0);
+    if (child == 0) { execl(argv[0],argv[0],argv[1],argv[2],"--restore",(char *)NULL); _exit(1); }
+    int status; CHECK(waitpid(child,&status,0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+#endif
+    puts("PASS: native exports, lifecycle, video, audio, six remotes, keyboard, portable states, saves, playlists and disc swapping");
     return 0;
 }

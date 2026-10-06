@@ -18,6 +18,26 @@ sealed class RetroInput
     public readonly uint[] Devices = [1, 1, 1, 1, 1, 1];
     public int KeyboardRemote = 1;
 
+    internal sealed record State(int[] Previous, long[] RepeatAt);
+    public void WriteState(BinaryWriter writer)
+    {
+        foreach (int value in _previous) writer.Write(value);
+        foreach (long value in _repeatAt) writer.Write(value);
+    }
+    public static State ReadState(BinaryReader reader)
+    {
+        int[] previous = new int[6]; long[] repeatAt = new long[6 * 21];
+        for (int i = 0; i < previous.Length; i++) previous[i] = reader.ReadInt32();
+        for (int i = 0; i < repeatAt.Length; i++) repeatAt[i] = reader.ReadInt64();
+        return new(previous, repeatAt);
+    }
+    public void RestoreState(State state)
+    {
+        state.Previous.CopyTo(_previous, 0);
+        for (int port = 0; port < 6; port++)
+            for (int key = 0; key < 21; key++) _repeatAt[port, key] = state.RepeatAt[port * 21 + key];
+    }
+
     public void Clear()
     {
         Array.Clear(_previous);

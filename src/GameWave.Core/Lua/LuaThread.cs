@@ -39,6 +39,7 @@ public sealed partial class LuaThread
     public CoroutineStatus Status { get; internal set; } = CoroutineStatus.Suspended;
     internal LuaFunction? StartFunction;
     internal bool Started;
+    internal bool ResumeContinuation;
     /// <summary>How many native-to-Lua call boundaries are live on this thread.</summary>
     internal int NativeDepth;
     internal bool Yielding;
@@ -390,6 +391,11 @@ public sealed partial class LuaThread
                     Frames[FrameCount - 1].Boundary = true;
                     Execute();
                 }
+            }
+            else if (ResumeContinuation)
+            {
+                ResumeContinuation = false;
+                if (FrameCount > 0) Execute();
             }
             else
             {

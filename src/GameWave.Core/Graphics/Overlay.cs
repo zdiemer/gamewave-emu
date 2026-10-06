@@ -179,7 +179,7 @@ public sealed class BlinkAnimation : OverlayAnimation
 /// <c>{1, frame, ms}</c> shows a frame for a time, <c>{3, index}</c> jumps to a step
 /// (0 based), <c>{2}</c> ends.
 /// </summary>
-public sealed class TextureAnimation
+public sealed partial class TextureAnimation
 {
     public const int DisplayTexture = 1;
     public const int End = 2;

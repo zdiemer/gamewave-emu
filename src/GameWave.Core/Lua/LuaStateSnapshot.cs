@@ -8,7 +8,9 @@ internal sealed class LuaStateSnapshot
 {
     readonly LuaState _copy;
 
-    LuaStateSnapshot(LuaState copy) => _copy = copy;
+    internal LuaState Copy => _copy;
+
+    internal LuaStateSnapshot(LuaState copy) => _copy = copy;
 
     public static LuaStateSnapshot Capture(LuaState source)
     {
@@ -40,7 +42,19 @@ internal sealed class LuaStateSnapshot
             _destination.CurrentThread = _destination.MainThread;
 
             if (normalizeNativeCall)
+            {
                 RewindNativeCalls(_destination.MainThread);
+                foreach (var pair in _objects.ToArray())
+                    if (pair.Key is LuaThread from && pair.Value is LuaThread to
+                        && from != _source.MainThread && from.Status is CoroutineStatus.Running or CoroutineStatus.Normal)
+                    {
+                        if (from.NativeDepth != 0)
+                            throw new InvalidOperationException("The coroutine is inside a nested Lua callback.");
+                        RewindNativeCalls(to);
+                        to.Status = CoroutineStatus.Suspended;
+                        to.ResumeContinuation = true;
+                    }
+            }
         }
 
         static void RewindNativeCalls(LuaThread thread)
@@ -87,8 +101,13 @@ internal sealed class LuaStateSnapshot
                 return (LuaFunction)known;
             if (source is LuaNative native)
             {
-                var nativeCopy = native.CloneForSnapshot(Thread);
+                LuaNative? target = null;
+                var nativeCopy = new LuaNative(native.Name, args => target!.Fn(args), clone => target!.CloneForSnapshot(clone));
                 _objects[source] = nativeCopy;
+                target = native.CloneForSnapshot(Thread);
+                nativeCopy.Env = native.Env is null ? null : Table(native.Env);
+                nativeCopy.WrappedThread = target.WrappedThread;
+                nativeCopy.IteratorState = target.IteratorState;
                 return nativeCopy;
             }
 
@@ -105,12 +124,12 @@ internal sealed class LuaStateSnapshot
         {
             if (_objects.TryGetValue(source, out var known))
                 return (UpVal)known;
-            UpVal copy;
-            if (source.Thread is { } owner)
-                copy = new UpVal(Thread(owner), source.Index);
-            else
-                copy = new UpVal(Value(source.Value));
+            var copy = new UpVal(LuaValue.Nil);
             _objects[source] = copy;
+            if (source.Thread is { } owner)
+                copy.Bind(Thread(owner), source.Index);
+            else
+                copy.Value = Value(source.Value);
             return copy;
         }
 
@@ -169,6 +188,7 @@ internal sealed class LuaStateSnapshot
             copy.Status = source.Status;
             copy.StartFunction = source.StartFunction is null ? null : Function(source.StartFunction);
             copy.Started = source.Started;
+            copy.ResumeContinuation = source.ResumeContinuation;
             copy.NativeDepth = source.NativeDepth;
             copy.Yielding = source.Yielding;
             copy.YieldFunc = source.YieldFunc;

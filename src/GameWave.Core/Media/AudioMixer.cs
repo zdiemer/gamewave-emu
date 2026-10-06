@@ -62,7 +62,8 @@ public sealed class Sound
 public sealed class AudioMixer : IDisposable
 {
     internal sealed record VoiceState(Sound Sound, int Position, bool Loop, int Id);
-    internal sealed record State(VoiceState[] Voices, VoiceState[] Waiting, int NextVoiceId);
+    internal sealed record MovieState(float[] Ring, long Written, long Played, bool Active, bool ClockRunning);
+    internal sealed record State(VoiceState[] Voices, VoiceState[] Waiting, int NextVoiceId, MovieState? Movie = null);
     public const int SampleRate = 44100;
     const int RingFrames = SampleRate * 2;
     const int MaxVoices = 8;
@@ -260,7 +261,8 @@ public sealed class AudioMixer : IDisposable
         lock (_gate)
         {
             static VoiceState Copy(Voice voice) => new(voice.Sound, voice.Position, voice.Loop, voice.Id);
-            return new State(_voices.Select(Copy).ToArray(), _waiting.Select(Copy).ToArray(), _nextVoiceId);
+            return new State(_voices.Select(Copy).ToArray(), _waiting.Select(Copy).ToArray(), _nextVoiceId,
+                new MovieState((float[])_ring.Clone(), _written, _played, _movieActive, _movieClockRunning));
         }
     }
 
@@ -281,6 +283,12 @@ public sealed class AudioMixer : IDisposable
             foreach (var voice in state.Waiting)
                 _waiting.Enqueue(Copy(voice));
             _nextVoiceId = state.NextVoiceId;
+            if (state.Movie is {} movie)
+            {
+                movie.Ring.CopyTo(_ring, 0);
+                _written = movie.Written; _played = movie.Played;
+                _movieActive = movie.Active; _movieClockRunning = movie.ClockRunning;
+            }
         }
     }
 

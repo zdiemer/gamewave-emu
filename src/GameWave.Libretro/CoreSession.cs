@@ -3,6 +3,7 @@ using GameWave.Engine;
 using GameWave.Graphics;
 using GameWave.Lua;
 using GameWave.Media;
+using System.Security.Cryptography;
 
 namespace GameWave.Libretro;
 
@@ -11,6 +12,9 @@ sealed class CoreSession : IDisposable
 {
     public const double Fps = 60;
     public const int AudioFrames = AudioMixer.SampleRate / 60;
+    // Fixed for the entire content session, as required by libretro. State files carry
+    // their compressed payload length; frontends can compress the zero-filled tail.
+    public const int StateSize = 64 << 20;
     public readonly uint[] Frame = new uint[Osd.Width * Osd.Height];
     public readonly float[] Mix = new float[AudioFrames * 2];
     public readonly short[] Pcm = new short[AudioFrames * 2];
@@ -95,6 +99,46 @@ sealed class CoreSession : IDisposable
         Machine.Input.Clear();
         if (!Ejected)
             Machine.Reset();
+    }
+
+    public byte[] SaveState(RetroInput input)
+    {
+        if (Ejected) throw new InvalidOperationException("Insert a disc before saving a state.");
+        byte[] machine = Machine.SaveState();
+        using var payload = new MemoryStream();
+        using (var writer = new BinaryWriter(payload, System.Text.Encoding.UTF8, true))
+        {
+            writer.Write(ImageIndex); input.WriteState(writer); writer.Write(machine);
+        }
+        byte[] bytes = payload.ToArray();
+        using var result = new MemoryStream();
+        using (var writer = new BinaryWriter(result, System.Text.Encoding.UTF8, true))
+        {
+            writer.Write("GWRETRO1"u8); writer.Write(bytes.Length);
+            writer.Write(SHA256.HashData(bytes)); writer.Write(bytes);
+        }
+        return result.ToArray();
+    }
+
+    public void LoadState(ReadOnlySpan<byte> data, RetroInput input)
+    {
+        if (Ejected) throw new InvalidOperationException("Insert a disc before loading a state.");
+        using var stream = new MemoryStream(data.ToArray(), false);
+        using var reader = new BinaryReader(stream);
+        if (!reader.ReadBytes(8).AsSpan().SequenceEqual("GWRETRO1"u8)) throw new InvalidDataException("Unsupported core state format.");
+        int length = reader.ReadInt32();
+        if (length < 1116 || length > StateSize - 44) throw new InvalidDataException("Invalid core state length.");
+        byte[] checksum = reader.ReadBytes(32), bytes = reader.ReadBytes(length);
+        if (bytes.Length != length || !checksum.AsSpan().SequenceEqual(SHA256.HashData(bytes)))
+            throw new InvalidDataException("The save state is truncated or damaged.");
+        using var payload = new MemoryStream(bytes, false);
+        using var stateReader = new BinaryReader(payload);
+        uint index = stateReader.ReadUInt32();
+        if (index != ImageIndex) throw new InvalidDataException("Select the saved disc before loading this state.");
+        var savedInput = RetroInput.ReadState(stateReader);
+        Machine.LoadState(bytes.AsSpan((int)payload.Position));
+        input.RestoreState(savedInput);
+        Machine.RenderFrame(Frame);
     }
 
     public bool SetEject(bool eject)

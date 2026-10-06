@@ -31,6 +31,7 @@ public sealed class MoviePlayer : IDisposable
     Picture? _shown;
     double _shownUntil;
     double _endTime;
+    double _seekTime;
 
     public MoviePlayer(AudioMixer mixer) => _mixer = mixer;
 
@@ -70,6 +71,7 @@ public sealed class MoviePlayer : IDisposable
         if (_file is null)
             return;
         _playingFile = _file;
+        _seekTime = time;
         lock (_gate)
         {
             _frames.Clear();
@@ -294,6 +296,11 @@ public sealed class MoviePlayer : IDisposable
             double t = double.IsNaN(pic.Pts) || double.IsNaN(firstPts) ? lastEnd : pic.Pts - firstPts + segmentOffset;
             double dur = pic.Duration > 0 ? pic.Duration : 1 / 29.97;
             lastEnd = Math.Max(lastEnd, t + dur);
+            if (t + dur <= _seekTime)
+            {
+                video.Recycle(pic);
+                continue;
+            }
             lock (_gate)
                 _frames.Enqueue((pic, t, dur));
         }

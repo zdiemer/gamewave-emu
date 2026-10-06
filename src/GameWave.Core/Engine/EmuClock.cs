@@ -74,6 +74,7 @@ public sealed class EmuClock
     {
         lock (_gate)
         {
+            if (_externalSeconds.HasValue) _externalSeconds = Math.Max(0, now) / 1000.0;
             bool paused = _pausedAt >= 0;
             _watch.Restart();
             _pausedTotal = -Math.Max(0, now);

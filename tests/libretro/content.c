@@ -59,11 +59,15 @@ int main(int argc, char **argv)
     library_t lib = open_library(argv[1]); CHECK(lib); load_api(lib);
     p_environment(environment); p_video(content_video); p_audio_batch(content_audio); p_poll(poll); p_input(input); p_init();
     struct retro_game_info game = {argv[3],NULL,0,NULL}; CHECK(p_load(&game));
+    size_t state_size = p_serialize_size(); CHECK(state_size > 0);
+    unsigned char *state = (unsigned char *)malloc(state_size); CHECK(state);
     uint64_t start = milliseconds();
     for (unsigned frame = 0; frame < frames; frame++) {
         /* Skip intro / join from the red remote after allowing the initial movies. */
         buttons[0] = frame == 2400 || frame == 3000 ? 1 << RETRO_DEVICE_ID_JOYPAD_START : 0;
         p_run(); CHECK(messages == 0);
+        if (frame == 299 || frame == frames - 61) CHECK(p_serialize(state,state_size));
+        if (frame == 449) CHECK(p_unserialize(state,state_size)); // Rewind an active intro movie.
         if ((frame + 1) % 600 == 0) {
             picture(argv[2],frame + 1);
             printf("frame=%u picture_changes=%u audible_frames=%u\n",frame + 1,picture_changes,audible_frames); fflush(stdout);
@@ -74,7 +78,13 @@ int main(int argc, char **argv)
     }
     picture(argv[2],frames);
     CHECK(video_calls == frames && audio_calls == frames && picture_changes > 30 && audible_frames > 30);
-    p_unload(); p_deinit(); close_library(lib);
-    puts("PASS: retail content produced changing video and audio without core errors");
+    char state_path[4096]; join_path(state_path,sizeof(state_path),argv[2],"content.state");
+    FILE *state_file = fopen(state_path,"wb"); CHECK(state_file);
+    CHECK(fwrite(state,1,state_size,state_file) == state_size); fclose(state_file);
+    p_unload(); p_deinit(); p_init(); CHECK(p_load(&game)); CHECK(p_unserialize(state,state_size));
+    for (unsigned frame = 0; frame < 120; frame++) { p_run(); CHECK(messages == 0); pause_ms(16); }
+    picture(argv[2],frames + 120);
+    p_unload(); p_deinit(); close_library(lib); free(state);
+    puts("PASS: retail video, audio, movie rewind and state restoration after deinit/reload");
     return 0;
 }

@@ -64,6 +64,8 @@ public sealed class LuaNative : LuaFunction
     readonly string _name;
     readonly Func<Func<LuaThread, LuaThread>, LuaNative>? _snapshotClone;
     public LuaTable? Env;
+    internal LuaThread? WrappedThread;
+    internal Func<(string Source, string Pattern, int Position)>? IteratorState;
 
     public LuaNative(string name, LuaNativeFn fn, Func<Func<LuaThread, LuaThread>, LuaNative>? snapshotClone = null)
     {
@@ -96,6 +98,12 @@ public sealed class UpVal
     internal UpVal(LuaValue value)
     {
         _closed = value;
+    }
+
+    internal void Bind(LuaThread? thread, int index)
+    {
+        _thread = thread;
+        Index = index;
     }
 
     public LuaValue Value
