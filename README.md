@@ -89,14 +89,14 @@ menus, and survives a soak test of random remote presses.
 
 ## Installing
 
-Every [release](../../releases/latest) carries self-contained builds that need no .NET
-runtime, each with SDL2 beside the binary:
+The [latest release](https://github.com/zdiemer/gamewave-emu/releases/latest) includes
+two Windows x64 packages. Both run without an installed .NET runtime; the standalone
+player includes SDL2 beside the executable.
 
-| Platform | Download |
-|----------|----------|
-| Windows x64 | `gamewave-windows-x86_64.zip` |
-| Linux x64 / arm64 | `gamewave-linux-x86_64.tar.gz` / `gamewave-linux-arm64.tar.gz` |
-| macOS Apple silicon / Intel | `gamewave-macos-arm64.tar.gz` / `gamewave-macos-x86_64.tar.gz` |
+| Package | Download |
+|---------|----------|
+| Standalone player | [gamewave-windows-x86_64.zip](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-windows-x86_64.zip) |
+| Libretro / RetroArch core | [gamewave-libretro-windows-x86_64.zip](https://github.com/zdiemer/gamewave-emu/releases/latest/download/gamewave-libretro-windows-x86_64.zip) |
 
 ### Windows
 
@@ -106,14 +106,9 @@ still works from a prompt; see [The command line on Windows](#the-command-line-o
 
 ### Linux and macOS
 
-```sh
-tar -xzf gamewave-linux-x86_64.tar.gz
-./gamewave-linux-x86_64/gamewave "Some Disc.iso"
-```
-
+Build from source for these platforms; release downloads currently target Windows.
 Keep the SDL2 library beside `gamewave`; an installed SDL2 is preferred when there is one.
-The native menu bar is Windows-only, so use the in-window menu (Escape). These builds are
-not tested before each release; reports are welcome.
+The native menu bar is Windows-only, so use the in-window menu (Escape).
 
 ## Building
 
@@ -126,7 +121,9 @@ dotnet test
 ```
 
 The binary lands in `src/GameWave/bin/Release/net10.0/`. Pushing a `v*` tag that matches
-`<Version>` in `src/GameWave/GameWave.csproj` builds every platform and publishes a release.
+`<Version>` in both `src/GameWave/GameWave.csproj` and
+`src/GameWave.Libretro/GameWave.Libretro.csproj` builds, tests, and publishes both Windows
+packages with SHA-256 checksums.
 
 ### Libretro / RetroArch
 

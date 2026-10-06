@@ -30,7 +30,7 @@ static unsafe class Exports
     // The frontend may retain these pointers until deinit, and request info before init.
     // Small immutable ABI metadata allocations live for the lifetime of the library.
     static readonly byte* Name = String("gamewave");
-    static readonly byte* Version = String("0.1.0");
+    static readonly byte* Version = String(typeof(Exports).Assembly.GetName().Version?.ToString(3) ?? "unknown");
     static readonly byte* Extensions = String("iso|zip|m3u|diz");
     static readonly byte* DeinterlaceKey = String("gamewave_deinterlace");
     static readonly byte* KeyboardKey = String("gamewave_keyboard_remote");

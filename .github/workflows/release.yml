@@ -41,11 +41,13 @@ jobs:
           # `gamewave version` prints the assembly version, so a tag that disagrees with
           # the project file ships a binary that misreports itself.
           $want = $env:TAG.TrimStart("v")
-          $have = ([xml](Get-Content src/GameWave/GameWave.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          if ($want -ne $have) {
-            throw "tag $env:TAG implies version $want, but src/GameWave/GameWave.csproj says $have"
+          foreach ($project in "src/GameWave/GameWave.csproj", "src/GameWave.Libretro/GameWave.Libretro.csproj") {
+            $have = ([xml](Get-Content $project)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            if ($want -ne $have) {
+              throw "tag $env:TAG implies version $want, but $project says $have"
+            }
+            "$project version $have matches tag $env:TAG"
           }
-          "version $have matches tag $env:TAG"
 
   build:
     needs: version
@@ -115,7 +117,8 @@ jobs:
 
           # PowerShell only waits for a GUI program whose output it pipes somewhere.
           $version = (& publish/gamewave.exe version | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $version) { throw "gamewave.exe version failed" }
+          $expectedVersion = "gamewave $($env:TAG.TrimStart('v'))"
+          if ($LASTEXITCODE -ne 0 -or $version -ne $expectedVersion) { throw "expected '$expectedVersion', got '$version'" }
           "built: $version"
 
           New-Item -ItemType Directory -Force staging, dist | Out-Null
