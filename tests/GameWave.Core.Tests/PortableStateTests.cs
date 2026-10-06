@@ -10,6 +10,22 @@ namespace GameWave.Tests;
 
 public sealed class PortableStateTests : IDisposable
 {
+    [Fact]
+    public void IntegerCheatsApplyAtBoundaryAndSurviveStateRestoration()
+    {
+        var program = new LuaProto { MaxStackSize = 2, Constants = ["score", 1, "time", "Sleep", 100, "print"],
+            Code = [ABx(OpCode.LoadK, 0, 1), ABx(OpCode.SetGlobal, 0, 0),
+                ABx(OpCode.GetGlobal, 0, 2), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 3),
+                ABx(OpCode.LoadK, 1, 4), ABC(OpCode.Call, 0, 2, 1),
+                ABx(OpCode.GetGlobal, 0, 5), ABx(OpCode.GetGlobal, 1, 0), ABC(OpCode.Call, 0, 2, 1),
+                ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 8)] };
+        using var machine = Create(customProgram: program); machine.RunFrame(.05);
+        Assert.False(machine.SetLuaInteger("missing.field", 9)); Assert.False(machine.SetLuaInteger("print", 9));
+        Assert.True(machine.SetLuaInteger("score", 99)); byte[] saved = machine.SaveState();
+        var lines = new List<string>(); machine.Log = lines.Add; machine.RunFrame(.051); Assert.Single(lines, "99");
+        Assert.True(machine.SetLuaInteger("score", 7)); machine.LoadState(saved); lines.Clear();
+        machine.RunFrame(.051); Assert.Single(lines, "99");
+    }
     [Theory]
     [InlineData("sort")]
     [InlineData("foreach")]

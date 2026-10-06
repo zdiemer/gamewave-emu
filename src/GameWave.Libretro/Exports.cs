@@ -35,6 +35,8 @@ static unsafe class Exports
     static readonly RetroInputDescriptor* Descriptors = MakeDescriptors();
     static readonly RetroOptions Options = MakeOptions();
     static readonly RetroOptionDefinitionV1* OptionsV1 = MakeOptionsV1();
+    static readonly RetroMemoryDescriptor* MemoryDescriptor = (RetroMemoryDescriptor*)NativeMemory.AllocZeroed((nuint)sizeof(RetroMemoryDescriptor));
+    static readonly byte* FlashAddressSpace = String("SRAM");
 
     static RetroOptions MakeOptions()
     {
@@ -142,6 +144,11 @@ static unsafe class Exports
     {
         var session = _session;
         _session = null;
+        if (session is not null)
+        {
+            var empty = new RetroMemoryMap();
+            Env(36 | 0x10000, &empty);
+        }
         session?.Dispose();
         Input.Clear();
         Messages.Clear();
@@ -244,6 +251,10 @@ static unsafe class Exports
             string saveDirectory = Env(31, &savePath) && Read(savePath) is { Length: > 0 } directory
                 ? directory : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "gamewave-libretro");
             _session = new CoreSession(path, saveDirectory, QueueLog, _initialIndex, _initialPath);
+            fixed (byte* pointer = _session.Memory.Data)
+                *MemoryDescriptor = new() { Flags = 8, Pointer = pointer, Length = FrontendMemory.Size, AddressSpace = FlashAddressSpace };
+            var memoryMap = new RetroMemoryMap { Descriptors = MemoryDescriptor, Count = 1 };
+            Env(36 | 0x10000, &memoryMap);
             ReadOptions();
             return 1;
         }
@@ -441,15 +452,23 @@ static unsafe class Exports
         catch (Exception error) { Error(error); return 0; }
     }
     [UnmanagedCallersOnly(EntryPoint = "retro_get_memory_data", CallConvs = [typeof(CallConvCdecl)])]
-    public static void* GetMemoryData(uint id) => null;
+    public static void* GetMemoryData(uint id)
+    {
+        if (id != 0 || _session is null) return null;
+        fixed (byte* pointer = _session.Memory.Data) return pointer;
+    }
     [UnmanagedCallersOnly(EntryPoint = "retro_get_memory_size", CallConvs = [typeof(CallConvCdecl)])]
-    public static nuint GetMemorySize(uint id) => 0;
+    public static nuint GetMemorySize(uint id) => id == 0 && _session is not null ? (nuint)FrontendMemory.Size : 0;
     [UnmanagedCallersOnly(EntryPoint = "retro_load_game_special", CallConvs = [typeof(CallConvCdecl)])]
     public static byte LoadSpecial(uint type, RetroGameInfo* games, nuint count) => 0;
     [UnmanagedCallersOnly(EntryPoint = "retro_get_region", CallConvs = [typeof(CallConvCdecl)])]
     public static uint GetRegion() => 0; // NTSC
     [UnmanagedCallersOnly(EntryPoint = "retro_cheat_reset", CallConvs = [typeof(CallConvCdecl)])]
-    public static void CheatReset() { }
+    public static void CheatReset() => _session?.CheatReset();
     [UnmanagedCallersOnly(EntryPoint = "retro_cheat_set", CallConvs = [typeof(CallConvCdecl)])]
-    public static void CheatSet(uint index, byte enabled, byte* code) { }
+    public static void CheatSet(uint index, byte enabled, byte* code)
+    {
+        try { _session?.CheatSet(index, enabled != 0, Read(code)); }
+        catch (Exception error) { Error(error); }
+    }
 }

@@ -9,6 +9,20 @@ namespace GameWave.Tests;
 /// <summary>The disc's own file formats, built synthetically.</summary>
 public class FormatTests
 {
+    [Fact]
+    public void FlashImagesImportTransactionallyAndRetainOpenSlotHandles()
+    {
+        var store = new SaveStore(null); store.Add(1, "game", "score", [1, 2, 3, 4]);
+        var open = Assert.Single(store.Slots);
+        var imported = new SaveStore(null); imported.Add(7, "game", "score", [9, 8, 7, 6]);
+        byte[] image = imported.Export(); store.Import(image);
+        Assert.Same(open, Assert.Single(store.Slots)); Assert.Equal(7, open.Id);
+        Assert.Equal(new byte[] { 9, 8, 7, 6 }, open.Data);
+        Assert.Throws<EndOfStreamException>(() => store.Import(image.AsSpan(0, 9)));
+        Assert.Throws<InvalidDataException>(() => store.Import(image.AsSpan(0, image.Length - 1)));
+        var bad = (byte[])image.Clone(); bad[8] = 0xff; bad[9] = 0xff; bad[10] = 0xff; bad[11] = 0x7f;
+        Assert.Throws<InvalidDataException>(() => store.Import(bad)); Assert.Equal(image, store.Export());
+    }
     static byte[] Zlib(byte[] data)
     {
         var ms = new MemoryStream();

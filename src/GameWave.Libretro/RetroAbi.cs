@@ -71,3 +71,13 @@ unsafe struct RetroOptionDefinitionV1
 }
 [StructLayout(LayoutKind.Sequential)]
 unsafe struct RetroOptions { public RetroOptionCategory* Categories; public RetroOptionDefinition* Definitions; }
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroMemoryDescriptor
+{
+    public ulong Flags;
+    public void* Pointer;
+    public nuint Offset, Start, Select, Disconnect, Length;
+    public byte* AddressSpace;
+}
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroMemoryMap { public RetroMemoryDescriptor* Descriptors; public uint Count; }

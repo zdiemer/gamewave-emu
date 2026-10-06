@@ -22,6 +22,8 @@ public sealed class SaveStore
     readonly object _gate = new();
     bool _dirty;
     byte[]? _persisted;
+    long _revision;
+    public long Revision { get { lock (_gate) return _revision; } }
     public bool WriteThrough { get; set; } = true;
     public void Flush() { lock (_gate) if (_dirty) Save(force: true); }
 
@@ -32,7 +34,8 @@ public sealed class SaveStore
         if (path is not null && File.Exists(path))
         {
             _persisted = File.ReadAllBytes(path);
-            Load(_persisted);
+            try { Import(_persisted); _dirty = false; }
+            catch (IOException) { }
         }
     }
 
@@ -85,38 +88,69 @@ public sealed class SaveStore
             _slots.Clear();
             _slots.AddRange(slots);
             _dirty = true;
+            _revision++;
             if (persist) Save(force: true);
         }
     }
 
     // File layout: "GWSAVE1\0", count, then per slot: id, game name, slot name, data.
-    void Load(byte[] b)
+    public void Import(ReadOnlySpan<byte> bytes)
     {
-        try
+        using var r = new BinaryReader(new MemoryStream(bytes.ToArray()), Encoding.UTF8);
+        if (!r.ReadBytes(8).AsSpan().SequenceEqual("GWSAVE1\0"u8)) throw new InvalidDataException("Invalid flash save image.");
+        int count = r.ReadInt32();
+        if (count < 0 || count > 65536 || count > (r.BaseStream.Length - r.BaseStream.Position) / 10)
+            throw new InvalidDataException("Invalid flash slot count.");
+        string Text()
         {
-            using var r = new BinaryReader(new MemoryStream(b), Encoding.UTF8);
-            if (Encoding.ASCII.GetString(r.ReadBytes(8)) != "GWSAVE1\0")
-                return;
-            int n = r.ReadInt32();
-            for (int i = 0; i < n; i++)
-            {
-                var s = new Slot
-                {
-                    Id = r.ReadInt32(),
-                    GameName = r.ReadString(),
-                    SlotName = r.ReadString(),
-                };
-                s.Data = r.ReadBytes(r.ReadInt32());
-                _slots.Add(s);
-            }
+            int length = r.Read7BitEncodedInt();
+            if (length < 0 || length > 1 << 20 || length > r.BaseStream.Length - r.BaseStream.Position)
+                throw new InvalidDataException("Invalid flash slot name.");
+            return Encoding.UTF8.GetString(r.ReadBytes(length));
         }
-        catch (EndOfStreamException)
+        var slots = new List<Slot>();
+        for (int i = 0; i < count; i++)
         {
+            var slot = new Slot { Id = r.ReadInt32(), GameName = Text(), SlotName = Text() };
+            int length = r.ReadInt32();
+            if (length < 0 || length > r.BaseStream.Length - r.BaseStream.Position)
+                throw new InvalidDataException("Invalid flash slot length.");
+            slot.Data = r.ReadBytes(length); slots.Add(slot);
+        }
+        if (r.BaseStream.Position != r.BaseStream.Length) throw new InvalidDataException("Unexpected flash save data.");
+        lock (_gate)
+        {
+            // Keep open game save handles bound to the existing slot objects.
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var imported = slots[i];
+                if (_slots.FirstOrDefault(s => s.GameName == imported.GameName && s.SlotName == imported.SlotName) is { } existing)
+                {
+                    existing.Id = imported.Id; existing.Data = imported.Data; slots[i] = existing;
+                }
+            }
+            _slots.Clear(); _slots.AddRange(slots); Save();
+        }
+    }
+
+    public byte[] Export()
+    {
+        lock (_gate)
+        {
+            using var ms = new MemoryStream();
+            using var w = new BinaryWriter(ms, Encoding.UTF8, true);
+            w.Write("GWSAVE1\0"u8); w.Write(_slots.Count);
+            foreach (var s in _slots)
+            {
+                w.Write(s.Id); w.Write(s.GameName); w.Write(s.SlotName); w.Write(s.Data.Length); w.Write(s.Data);
+            }
+            return ms.ToArray();
         }
     }
 
     void Save(bool force = false)
     {
+        if (!force) _revision++;
         _dirty = true;
         if (!force && !WriteThrough) return;
         if (_path is null)
@@ -124,22 +158,8 @@ public sealed class SaveStore
             _dirty = false;
             return;
         }
-        var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
-        {
-            w.Write(Encoding.ASCII.GetBytes("GWSAVE1\0"));
-            w.Write(_slots.Count);
-            foreach (var s in _slots)
-            {
-                w.Write(s.Id);
-                w.Write(s.GameName);
-                w.Write(s.SlotName);
-                w.Write(s.Data.Length);
-                w.Write(s.Data);
-            }
-        }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-        byte[] bytes = ms.ToArray();
+        byte[] bytes = Export();
         if (_persisted is not null && bytes.AsSpan().SequenceEqual(_persisted))
         {
             _dirty = false;

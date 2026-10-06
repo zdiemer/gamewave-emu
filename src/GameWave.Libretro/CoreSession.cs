@@ -29,12 +29,16 @@ sealed class CoreSession : IDisposable
     string? _loadedPath;
     bool _ejected;
     bool _speculative;
+    public FrontendMemory Memory { get; } = new();
+    readonly SortedDictionary<uint, CoreCheat> _cheats = new();
 
     public CoreSession(string content, string saveDirectory, Action<string> log, uint initialIndex = 0, string? initialPath = null)
     {
         _log = log;
         _cache = Path.Combine(saveDirectory, "gamewave", "unpacked");
         _saves = new SaveStore(Path.Combine(saveDirectory, "gamewave", "gamewave.saves"));
+        _saves.WriteThrough = false;
+        Memory.Export(_saves);
         content = Path.GetFullPath(content);
         if (Path.GetExtension(content).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
         {
@@ -108,6 +112,15 @@ sealed class CoreSession : IDisposable
     public void Run(bool hardDisableAudio = false)
     {
         bool speculative = _speculative || hardDisableAudio;
+        if (!speculative) ImportMemory();
+        foreach (var pair in _cheats.ToArray())
+        {
+            try { pair.Value.Apply(Machine, _saves); }
+            catch (Exception error) when (error is IOException or FormatException or ArgumentException)
+            {
+                _cheats.Remove(pair.Key); _log("Emulator error: Cheat disabled: " + error.Message);
+            }
+        }
         // Runahead's first frame is committed even when A/V is disabled. Serialize
         // marks the following frames speculative; loading rolls those writes back.
         _saves.WriteThrough = false;
@@ -119,7 +132,25 @@ sealed class CoreSession : IDisposable
         for (int i = 0; i < Mix.Length; i++)
             Pcm[i] = (short)Math.Clamp((int)Math.Round(Mix[i] * 32768), short.MinValue, short.MaxValue);
         Machine.RenderFrame(Frame);
-        if (!speculative) _saves.Flush();
+        if (!speculative) { _saves.Flush(); Memory.Export(_saves); }
+    }
+
+    void ImportMemory()
+    {
+        try { Memory.Import(_saves); }
+        catch (Exception error) when (error is IOException or FormatException or ArgumentException)
+        {
+            // Reject malformed frontend edits transactionally without stopping the game.
+            Memory.Export(_saves, force: true);
+            _log("Emulator error: " + error.Message);
+        }
+    }
+
+    public void CheatReset() => _cheats.Clear();
+    public void CheatSet(uint index, bool enabled, string? code)
+    {
+        _cheats.Remove(index);
+        if (enabled) _cheats[index] = CoreCheat.Parse(code ?? "");
     }
 
     public void Reset()
@@ -133,6 +164,7 @@ sealed class CoreSession : IDisposable
     public byte[] SaveState(RetroInput input)
     {
         if (Ejected) throw new InvalidOperationException("Insert a disc before saving a state.");
+        if (!_speculative) ImportMemory();
         byte[] machine = Machine.SaveState();
         using var payload = new MemoryStream();
         using (var writer = new BinaryWriter(payload, System.Text.Encoding.UTF8, true))
@@ -153,7 +185,7 @@ sealed class CoreSession : IDisposable
     {
         if (context == 1)
         {
-            if (!_speculative) _saves.Flush();
+            if (!_speculative) { _saves.Flush(); Memory.Export(_saves); }
             _speculative = true;
         }
     }
@@ -177,6 +209,7 @@ sealed class CoreSession : IDisposable
         Machine.LoadState(bytes.AsSpan((int)payload.Position), persistSaves);
         input.RestoreState(savedInput);
         _speculative = context == 2;
+        Memory.Export(_saves, force: true);
     }
 
     public bool SetEject(bool eject)
