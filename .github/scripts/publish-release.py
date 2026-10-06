@@ -35,7 +35,7 @@ def verify_archive(path):
             warning = archive.extractfile(root + "/EXPERIMENTAL.txt").read().decode()
             if "EXPERIMENTAL PLATFORM BUILD" not in warning or "untested" not in warning:
                 raise RuntimeError("Missing experimental warning: " + path.name)
-            if not core and archive.getmember(root + "/gamewave").mode & 0o111:
+            if not core and not (archive.getmember(root + "/gamewave").mode & 0o111):
                 raise RuntimeError("Standalone executable permissions missing: " + path.name)
 
 

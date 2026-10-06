@@ -155,7 +155,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          # Use the workflow revision for publishing tools. A manual dispatch can
+          # repair publication while building the unchanged release tag above.
+          ref: ${{ github.sha }}
 
       - uses: actions/download-artifact@v4
         with:
