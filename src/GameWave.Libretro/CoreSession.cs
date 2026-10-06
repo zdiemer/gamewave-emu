@@ -20,6 +20,7 @@ sealed class CoreSession : IDisposable
     public readonly short[] Pcm = new short[AudioFrames * 2];
     public Machine Machine { get; private set; } = null!;
     public List<string?> Images { get; } = [];
+    readonly List<string?> _labels = [];
     public uint ImageIndex { get; private set; }
     public bool Ejected => _ejected || Machine.State == MachineState.TrayOpen;
     readonly string _cache;
@@ -29,7 +30,7 @@ sealed class CoreSession : IDisposable
     bool _ejected;
     bool _speculative;
 
-    public CoreSession(string content, string saveDirectory, Action<string> log)
+    public CoreSession(string content, string saveDirectory, Action<string> log, uint initialIndex = 0, string? initialPath = null)
     {
         _log = log;
         _cache = Path.Combine(saveDirectory, "gamewave", "unpacked");
@@ -37,20 +38,39 @@ sealed class CoreSession : IDisposable
         content = Path.GetFullPath(content);
         if (Path.GetExtension(content).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
         {
+            string? label = null;
             foreach (var line in File.ReadLines(content))
             {
                 var entry = line.Trim();
+                if (entry.StartsWith("#LABEL:", StringComparison.OrdinalIgnoreCase)) label = entry[7..].Trim();
+                else if (entry.StartsWith("#EXTINF:", StringComparison.OrdinalIgnoreCase) && entry.Contains(',')) label = entry[(entry.IndexOf(',') + 1)..].Trim();
                 if (entry.Length == 0 || entry.StartsWith('#'))
                     continue;
                 Images.Add(Path.GetFullPath(entry, Path.GetDirectoryName(content)!));
+                _labels.Add(label); label = null;
             }
             if (Images.Count == 0)
                 throw new InvalidDataException("The disc playlist is empty.");
         }
         else
+        {
             Images.Add(content);
-        Load(Images[0]!);
+            _labels.Add(null);
+        }
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (initialIndex < Images.Count && initialPath is not null && string.Equals(Images[(int)initialIndex], initialPath, comparison)) ImageIndex = initialIndex;
+        Load(Images[(int)ImageIndex]!);
     }
+
+    public string? ImagePath(uint index) => index < Images.Count ? Images[(int)index] : null;
+    public string? ImageLabel(uint index)
+    {
+        if (ImagePath(index) is not { } path) return null;
+        if (_labels[(int)index] is { Length: > 0 } label) return label;
+        if (Path.GetFileName(path).Equals("gamewave.diz", StringComparison.OrdinalIgnoreCase)) path = Path.GetDirectoryName(path)!;
+        return Path.GetFileNameWithoutExtension(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+    public void AddImage() { Images.Add(null); _labels.Add(null); }
 
     IDisc Open(string path)
     {
@@ -199,11 +219,15 @@ sealed class CoreSession : IDisposable
         if (path is null)
         {
             Images.RemoveAt((int)index);
+            _labels.RemoveAt((int)index);
             if (ImageIndex > index)
                 ImageIndex--;
         }
         else
+        {
             Images[(int)index] = Path.GetFullPath(path);
+            _labels[(int)index] = null;
+        }
         return true;
     }
 

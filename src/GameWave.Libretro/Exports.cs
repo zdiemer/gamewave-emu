@@ -20,6 +20,8 @@ static unsafe class Exports
     static readonly RetroInput Input = new();
     static readonly ConcurrentQueue<string> Messages = new();
     static bool _failed;
+    static uint _initialIndex;
+    static string? _initialPath;
 
     // The frontend may retain these pointers until deinit, and request info before init.
     // Small immutable ABI metadata allocations live for the lifetime of the library.
@@ -31,6 +33,35 @@ static unsafe class Exports
     static readonly RetroVariable* Variables = MakeVariables();
     static readonly RetroControllerInfo* Controllers = MakeControllers();
     static readonly RetroInputDescriptor* Descriptors = MakeDescriptors();
+    static readonly RetroOptions Options = MakeOptions();
+    static readonly RetroOptionDefinitionV1* OptionsV1 = MakeOptionsV1();
+
+    static RetroOptions MakeOptions()
+    {
+        var categories = (RetroOptionCategory*)NativeMemory.AllocZeroed(3, (nuint)sizeof(RetroOptionCategory));
+        categories[0] = new() { Key = String("video"), Description = String("Video"), Info = String("Picture presentation.") };
+        categories[1] = new() { Key = String("input"), Description = String("Input"), Info = String("Game Wave remote controls.") };
+        var definitions = (RetroOptionDefinition*)NativeMemory.AllocZeroed(3, (nuint)sizeof(RetroOptionDefinition));
+        definitions[0] = new() { Key = DeinterlaceKey, Description = String("Deinterlacing"),
+            Info = String("Blend interlaced movie fields for a smoother picture, or show fields without blending."), Category = categories[0].Key, Default = String("blend") };
+        definitions[0].Values[0] = new() { Value = definitions[0].Default, Label = String("Blend") };
+        definitions[0].Values[1] = new() { Value = String("off"), Label = String("Off") };
+        definitions[1] = new() { Key = KeyboardKey, Description = String("Keyboard remote"),
+            Info = String("Select the remote controlled by the keyboard. RetroPad ports always control their corresponding remotes."), Category = categories[1].Key, Default = String("1") };
+        for (int i = 0; i < 6; i++) definitions[1].Values[i] = new() { Value = String((i + 1).ToString()), Label = String($"Remote {i + 1}") };
+        return new() { Categories = categories, Definitions = definitions };
+    }
+
+    static RetroOptionDefinitionV1* MakeOptionsV1()
+    {
+        var definitions = (RetroOptionDefinitionV1*)NativeMemory.AllocZeroed(3, (nuint)sizeof(RetroOptionDefinitionV1));
+        for (int i = 0; i < 2; i++)
+        {
+            var source = Options.Definitions[i];
+            definitions[i] = new() { Key = source.Key, Description = source.Description, Info = source.Info, Values = source.Values, Default = source.Default };
+        }
+        return definitions;
+    }
 
     static byte* String(string value) => (byte*)Marshal.StringToCoTaskMemUTF8(value);
     static string? Read(byte* value) => Marshal.PtrToStringUTF8((nint)value);
@@ -126,7 +157,15 @@ static unsafe class Exports
         _environment = callback;
         byte noGame = 0;
         Env(18, &noGame);
-        Env(16, Variables);
+        uint version = 0;
+        Env(52, &version);
+        if (version >= 2)
+        {
+            var options = Options;
+            Env(67, &options); // false means no categories, not registration failure.
+        }
+        else if (version >= 1) Env(53, OptionsV1);
+        else Env(16, Variables);
         Env(35, Controllers);
         Env(11, Descriptors);
     }
@@ -157,7 +196,10 @@ static unsafe class Exports
                 SetEject = &SetEject, GetEject = &GetEject, GetIndex = &GetIndex,
                 SetIndex = &SetIndex, GetCount = &GetCount, Replace = &Replace, Add = &Add,
             };
-            Env(13, &disk);
+            uint diskVersion = 0;
+            Env(57, &diskVersion);
+            var extended = new RetroDiskControlExt { Basic = disk, SetInitial = &SetInitial, GetPath = &GetImagePath, GetLabel = &GetImageLabel };
+            if (diskVersion < 1 || !Env(58, &extended)) Env(13, &disk);
         }
         catch (Exception error) { Error(error); }
     }
@@ -201,11 +243,12 @@ static unsafe class Exports
             byte* savePath = null;
             string saveDirectory = Env(31, &savePath) && Read(savePath) is { Length: > 0 } directory
                 ? directory : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "gamewave-libretro");
-            _session = new CoreSession(path, saveDirectory, QueueLog);
+            _session = new CoreSession(path, saveDirectory, QueueLog, _initialIndex, _initialPath);
             ReadOptions();
             return 1;
         }
         catch (Exception error) { Error(error); return 0; }
+        finally { _initialIndex = 0; _initialPath = null; }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "retro_unload_game", CallConvs = [typeof(CallConvCdecl)])]
@@ -328,11 +371,39 @@ static unsafe class Exports
         {
             if (_session is not { } session)
                 return 0;
-            session.Images.Add(null);
+            session.AddImage();
             return 1;
         }
         catch (Exception error) { Error(error); return 0; }
     }
+
+    static byte CopyText(string? text, byte* destination, nuint size)
+    {
+        if (destination == null || size == 0 || size > int.MaxValue) return 0;
+        destination[0] = 0;
+        if (text is null) return 0;
+        int length = System.Text.Encoding.UTF8.GetByteCount(text);
+        if ((nuint)length >= size) return 0;
+        System.Text.Encoding.UTF8.GetBytes(text, new Span<byte>(destination, length));
+        destination[length] = 0;
+        return 1;
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    static byte SetInitial(uint index, byte* path)
+    {
+        try
+        {
+            if (_session is not null || Read(path) is not { Length: > 0 } value) return 0;
+            _initialPath = Path.GetFullPath(value); _initialIndex = index; return 1;
+        }
+        catch (Exception error) { Error(error); return 0; }
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    static byte GetImagePath(uint index, byte* destination, nuint size)
+        => CopyText(_session?.ImagePath(index), destination, size);
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    static byte GetImageLabel(uint index, byte* destination, nuint size)
+        => CopyText(_session?.ImageLabel(index), destination, size);
 
     [UnmanagedCallersOnly(EntryPoint = "retro_serialize_size", CallConvs = [typeof(CallConvCdecl)])]
     public static nuint SerializeSize() => _session is null ? 0 : (nuint)CoreSession.StateSize;

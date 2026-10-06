@@ -64,6 +64,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "determinism test compilation failed" }
           & artifacts/libretro/determinism.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/determinism-data"
           if ($LASTEXITCODE -ne 0) { throw "libretro determinism test failed" }
+          cl /nologo /std:c11 /W4 /WX /O2 tests/libretro/features.c /Fe:artifacts/libretro/features.exe /Fo:artifacts/libretro/features.obj
+          if ($LASTEXITCODE -ne 0) { throw "feature test compilation failed" }
+          & artifacts/libretro/features.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/features-data"
+          if ($LASTEXITCODE -ne 0) { throw "libretro feature test failed" }
 
       - name: Publish and smoke-test libretro (Linux)
         if: runner.os == 'Linux'
@@ -73,6 +77,8 @@ jobs:
           artifacts/libretro/smoke "$PWD/artifacts/libretro/linux-x64/gamewave_libretro.so" "$PWD/artifacts/libretro/smoke-data"
           cc -std=c11 -Wall -Wextra -Werror -O2 tests/libretro/determinism.c -ldl -o artifacts/libretro/determinism
           artifacts/libretro/determinism "$PWD/artifacts/libretro/linux-x64/gamewave_libretro.so" "$PWD/artifacts/libretro/determinism-data"
+          cc -std=c11 -Wall -Wextra -Werror -O2 tests/libretro/features.c -ldl -o artifacts/libretro/features
+          artifacts/libretro/features "$PWD/artifacts/libretro/linux-x64/gamewave_libretro.so" "$PWD/artifacts/libretro/features-data"
 
       - uses: actions/upload-artifact@v4
         with:

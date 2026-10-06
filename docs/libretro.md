@@ -152,10 +152,10 @@ cross a host disc change. Save-state history belongs to the inserted disc.
 
 | Feature | Status |
 |---|---|
-| Extended disk control | Basic swapping works; disc labels, paths and frontend-selected initial disc are missing. |
+| Extended disk control | Disc labels, paths, and validated frontend-selected initial disc; legacy interface fallback. |
 | Frontend-managed save RAM | Flash slots use `gamewave.saves`; `retro_get_memory_data/size` do not expose an SRAM buffer. |
 | Cheats and memory maps | Cheat callbacks are stubs; no system RAM map or achievement memory interface is exposed. |
-| Core options v2 | Two legacy options work; categorized and localized modern options are missing. |
+| Core options v2 | Categorized English options with descriptions and labels; v1 and legacy fallback. |
 | VFS and log interfaces | Disc and save I/O use the OS filesystem; errors use frontend messages, without a structured log callback. |
 | Netplay | No frontend validation yet; deterministic local replay alone does not establish netplay compatibility. |
 

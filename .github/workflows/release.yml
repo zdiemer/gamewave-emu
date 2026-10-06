@@ -90,6 +90,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "determinism test compilation failed" }
           & artifacts/libretro/determinism.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/determinism-data"
           if ($LASTEXITCODE -ne 0) { throw "libretro determinism test failed" }
+          cl /nologo /std:c11 /W4 /WX /O2 tests/libretro/features.c /Fe:artifacts/libretro/features.exe /Fo:artifacts/libretro/features.obj
+          if ($LASTEXITCODE -ne 0) { throw "feature test compilation failed" }
+          & artifacts/libretro/features.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/features-data"
+          if ($LASTEXITCODE -ne 0) { throw "libretro feature test failed" }
           New-Item -ItemType Directory -Force staging-libretro, dist | Out-Null
           Copy-Item artifacts/libretro/win-x64/gamewave_libretro.dll, artifacts/libretro/win-x64/gamewave_libretro.info, docs/libretro.md, LICENSE staging-libretro/
           Compress-Archive -Path staging-libretro/* -DestinationPath dist/gamewave-libretro-windows-x86_64.zip

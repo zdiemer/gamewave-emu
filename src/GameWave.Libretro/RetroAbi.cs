@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 
 namespace GameWave.Libretro;
 
@@ -40,3 +41,33 @@ unsafe struct RetroDiskControl
 }
 [StructLayout(LayoutKind.Sequential)]
 unsafe struct RetroKeyboard { public delegate* unmanaged[Cdecl]<byte, uint, uint, ushort, void> Callback; }
+
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroDiskControlExt
+{
+    public RetroDiskControl Basic;
+    public delegate* unmanaged[Cdecl]<uint, byte*, byte> SetInitial;
+    public delegate* unmanaged[Cdecl]<uint, byte*, nuint, byte> GetPath, GetLabel;
+}
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroOptionValue { public byte* Value, Label; }
+[InlineArray(128)]
+struct RetroOptionValues { RetroOptionValue _first; }
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroOptionCategory { public byte* Key, Description, Info; }
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroOptionDefinition
+{
+    public byte* Key, Description, CategorizedDescription, Info, CategorizedInfo, Category;
+    public RetroOptionValues Values;
+    public byte* Default;
+}
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroOptionDefinitionV1
+{
+    public byte* Key, Description, Info;
+    public RetroOptionValues Values;
+    public byte* Default;
+}
+[StructLayout(LayoutKind.Sequential)]
+unsafe struct RetroOptions { public RetroOptionCategory* Categories; public RetroOptionDefinition* Definitions; }
