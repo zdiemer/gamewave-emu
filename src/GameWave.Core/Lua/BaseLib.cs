@@ -12,20 +12,10 @@ public static class BaseLib
         G["_G"] = G;
         G["_VERSION"] = "Lua 5.0";
 
-        S.Register("print", a =>
-        {
-            var sb = new StringBuilder();
-            for (int i = 1; i <= a.Count; i++)
-            {
-                if (i > 1)
-                    sb.Append('\t');
-                sb.Append(a.State.ToStringMeta(a[i]));
-            }
-            a.State.Output(sb.ToString());
-            return 0;
-        });
+        LuaContinuations.Open(S);
+        S.Register("print", a => LuaContinuations.ToString(a, print: true));
         S.Register("type", a => a.Return(a.Any(1).TypeName));
-        S.Register("tostring", a => a.Return(a.State.ToStringMeta(a.Any(1))));
+        S.Register("tostring", a => LuaContinuations.ToString(a, print: false));
         S.Register("tonumber", ToNumber);
         S.Register("assert", a =>
         {
@@ -220,7 +210,7 @@ public static class BaseLib
             ("yield", a =>
             {
                 var L = a.L;
-                if (L == a.State.MainThread || L.NativeDepth > 0 || L.Frames.Take(L.FrameCount).Any(f => f.Protected != 0))
+                if (L == a.State.MainThread || L.NativeDepth > 0 || L.Frames.Take(L.FrameCount).Any(f => f.Protected != 0 || f.Continuation is not null))
                     throw new LuaException("attempt to yield across metamethod/C-call boundary");
                 L.Yielding = true;
                 // The arguments are already the top values of the stack.
@@ -356,113 +346,9 @@ public static class BaseLib
                 }
                 return a.Return(sb.ToString());
             }),
-            ("foreach", a =>
-            {
-                var t = a.Table(1);
-                var f = LuaValue.Function(a.Function(2));
-                foreach (var kv in t.Pairs().ToList())
-                {
-                    var r = a.L.Call1(f, kv.Key, kv.Value);
-                    if (!r.IsNil)
-                        return a.Return(r);
-                }
-                return 0;
-            }),
-            ("foreachi", a =>
-            {
-                var t = a.Table(1);
-                var f = LuaValue.Function(a.Function(2));
-                int n = GetN(t);
-                for (int i = 1; i <= n; i++)
-                {
-                    var r = a.L.Call1(f, i, t.Get(i));
-                    if (!r.IsNil)
-                        return a.Return(r);
-                }
-                return 0;
-            }),
-            ("sort", a =>
-            {
-                var t = a.Table(1);
-                int n = GetN(t);
-                var comp = a[2];
-                new Sorter(a.L, t, comp).Sort(1, n);
-                return 0;
-            }));
-    }
-
-    /// <summary>Lua 5.0's <c>auxsort</c>, so ties land where the original put them.</summary>
-    sealed class Sorter(LuaThread L, LuaTable t, LuaValue comp)
-    {
-        bool Lt(LuaValue x, LuaValue y)
-        {
-            if (!comp.IsNil)
-                return L.Call1(comp, x, y).IsTruthy;
-            return L.State.LessThan(x, y);
-        }
-
-        LuaValue Get(int i) => t.Get(i);
-        void Set(int i, LuaValue v) => t.Set(LuaValue.Number(i), v);
-
-        void Swap(int i, int j)
-        {
-            var a = Get(i);
-            var b = Get(j);
-            Set(i, b);
-            Set(j, a);
-        }
-
-        public void Sort(int l, int u)
-        {
-            while (l < u)
-            {
-                if (Lt(Get(u), Get(l)))
-                    Swap(l, u);
-                if (u - l == 1)
-                    break;
-                int i = (l + u) / 2;
-                if (Lt(Get(i), Get(l)))
-                    Swap(i, l);
-                else if (Lt(Get(u), Get(i)))
-                    Swap(i, u);
-                if (u - l == 2)
-                    break;
-                var p = Get(i);
-                Swap(i, u - 1);
-                i = l;
-                int j = u - 1;
-                for (;;)
-                {
-                    while (Lt(Get(++i), p))
-                    {
-                        if (i > u)
-                            throw new LuaException("invalid order function for sorting");
-                    }
-                    while (Lt(p, Get(--j)))
-                    {
-                        if (j < l)
-                            throw new LuaException("invalid order function for sorting");
-                    }
-                    if (j < i)
-                        break;
-                    Swap(i, j);
-                }
-                Swap(u - 1, i);
-                if (i - l < u - i)
-                {
-                    j = l;
-                    i = i - 1;
-                    l = i + 2;
-                }
-                else
-                {
-                    j = i + 1;
-                    i = u;
-                    u = j - 2;
-                }
-                Sort(j, i);
-            }
-        }
+            ("foreach", a => LuaContinuations.ForEach(a, array: false)),
+            ("foreachi", a => LuaContinuations.ForEach(a, array: true)),
+            ("sort", LuaContinuations.Sort));
     }
 
     // ---------------------------------------------------------------- debug

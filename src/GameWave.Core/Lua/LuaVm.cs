@@ -24,6 +24,27 @@ public sealed partial class LuaThread
             if (want != MultRet) Top = Frames[FrameCount - 1].Top;
             goto newFrame;
         }
+        if (f.Native is { } native && f.Continuation is not null)
+        {
+            try
+            {
+                int count = native.Fn(new LuaArgs(this, f.Base, f.Top - f.Base));
+                if (count == -1) goto newFrame;
+                bool boundary = f.Boundary;
+                int want = f.Want;
+                PostCall(Top - count, count);
+                if (boundary || FrameCount == 0) return;
+                if (want != MultRet && Frames[FrameCount - 1].Closure is not null) Top = Frames[FrameCount - 1].Top;
+                goto newFrame;
+            }
+            catch (LuaException error)
+            {
+                error.LuaTraceback ??= Traceback();
+                if (HandleProtectedError(error)) goto newFrame;
+                throw;
+            }
+            catch (GameWave.Engine.LuaStateRestoredException) { goto newFrame; }
+        }
         var cl = f.Closure!;
         var p = cl.Proto;
         var k = p.Constants;
@@ -80,8 +101,8 @@ public sealed partial class LuaThread
                         var v = cl.Env.Get(key);
                         if (v.IsNil && cl.Env.Metatable is not null)
                         {
-                            v = S.Index(LuaValue.Table(cl.Env), key);
-                            s = Stack;
+                            StartOperation("index", a, LuaValue.Table(cl.Env), key);
+                            goto newFrame;
                         }
                         s[a] = v;
                         break;
@@ -98,8 +119,8 @@ public sealed partial class LuaThread
                         }
                         else
                         {
-                            v = S.Index(t, key);
-                            s = Stack;
+                            StartOperation("index", a, t, key);
+                            goto newFrame;
                         }
                         s[a] = v;
                         break;
@@ -112,8 +133,8 @@ public sealed partial class LuaThread
                             cl.Env.Set(key, s[a]);
                         else
                         {
-                            S.SetIndex(LuaValue.Table(cl.Env), key, s[a]);
-                            s = Stack;
+                            StartOperation("set", a, LuaValue.Table(cl.Env), key, s[a]);
+                            goto newFrame;
                         }
                         break;
                     }
@@ -132,8 +153,8 @@ public sealed partial class LuaThread
                             tt.Set(key, val);
                         else
                         {
-                            S.SetIndex(t, key, val);
-                            s = Stack;
+                            StartOperation("set", a, t, key, val);
+                            goto newFrame;
                         }
                         break;
                     }
@@ -154,8 +175,8 @@ public sealed partial class LuaThread
                         }
                         else
                         {
-                            v = S.Index(obj, key);
-                            s = Stack;
+                            StartOperation("index", a, obj, key);
+                            goto newFrame;
                         }
                         s[a] = v;
                         break;
@@ -175,9 +196,8 @@ public sealed partial class LuaThread
                             s[a] = LuaValue.Number(LuaState.ArithInt(op, x.N, y.N));
                         else
                         {
-                            var r = S.Arith(op, x, y);
-                            s = Stack;
-                            s[a] = r;
+                            StartOperation("arith", a, x, y, (int)op);
+                            goto newFrame;
                         }
                         break;
                     }
@@ -189,9 +209,8 @@ public sealed partial class LuaThread
                             s[a] = LuaValue.Number(unchecked(-x.N));
                         else
                         {
-                            var r = S.Arith(OpCode.Unm, x, x);
-                            s = Stack;
-                            s[a] = r;
+                            StartOperation("arith", a, x, x, (int)OpCode.Unm);
+                            goto newFrame;
                         }
                         break;
                     }
@@ -203,10 +222,8 @@ public sealed partial class LuaThread
                     case OpCode.Concat:
                     {
                         int b = @base + Instr.B(i), c = @base + Instr.C(i);
-                        var r = S.Concat(s, b, c);
-                        s = Stack;
-                        s[a] = r;
-                        break;
+                        StartOperation("concat", a, s[b..(c + 1)]);
+                        goto newFrame;
                     }
 
                     case OpCode.Jmp:
@@ -220,18 +237,11 @@ public sealed partial class LuaThread
                         int b = Instr.B(i), c = Instr.C(i);
                         var x = b >= Instr.MaxStack ? k[b - Instr.MaxStack] : s[@base + b];
                         var y = c >= Instr.MaxStack ? k[c - Instr.MaxStack] : s[@base + c];
-                        bool res = (OpCode)(i & 0x3F) switch
+                        StartOperation((OpCode)(i & 0x3F) switch
                         {
-                            OpCode.Eq => S.ValuesEqual(x, y),
-                            OpCode.Lt => S.LessThan(x, y),
-                            _ => S.LessEqual(x, y),
-                        };
-                        s = Stack;
-                        if (res != ((i >> 24) != 0))
-                            pc++;
-                        else
-                            pc += Instr.SBx(code[pc]) + 1;
-                        break;
+                            OpCode.Eq => "eq", OpCode.Lt => "lt", _ => "le",
+                        }, a, x, y, LuaValue.Bool((i >> 24) != 0));
+                        goto newFrame;
                     }
 
                     case OpCode.Test:
@@ -331,24 +341,8 @@ public sealed partial class LuaThread
 
                     case OpCode.TForLoop:
                     {
-                        int nvar = Instr.C(i) + 1;
-                        int cb = a + nvar + 2;
-                        EnsureStack(cb + 3);
-                        s = Stack;
-                        s[cb] = s[a];
-                        s[cb + 1] = s[a + 1];
-                        s[cb + 2] = s[a + 2];
-                        Top = cb + 3;
-                        Call(cb, nvar);
-                        s = Stack;
-                        Top = f.Top;
-                        for (int j = 0; j < nvar; j++)
-                            s[a + 2 + j] = s[cb + j];
-                        if (s[a + 2].IsNil)
-                            pc++;
-                        else
-                            pc += Instr.SBx(code[pc]) + 1;
-                        break;
+                        StartOperation("iterator", a, s[a], s[a + 1], s[a + 2], Instr.C(i) + 1);
+                        goto newFrame;
                     }
 
                     case OpCode.TForPrep:

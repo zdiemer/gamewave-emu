@@ -16,6 +16,8 @@ public sealed class LuaState
     internal Func<bool>? InstructionBoundary { get; set; }
     internal Dictionary<string, LuaNative> NativeFunctions { get; } = new(StringComparer.Ordinal);
     internal int ManagedCallDepth;
+    internal readonly Dictionary<LuaValue, int> ObjectIds = new();
+    internal int NextObjectId;
 
     /// <summary>Where <c>print</c> and the engine's log output go.</summary>
     public Action<string> Output { get; set; } = Console.WriteLine;
@@ -312,6 +314,11 @@ public sealed class LuaState
             if (!r.TryToStr(out var s))
                 throw new LuaException("`tostring' must return a string");
             return s;
+        }
+        if (v.Type is LuaType.Table or LuaType.Function or LuaType.Userdata or LuaType.Thread)
+        {
+            if (!ObjectIds.TryGetValue(v, out int id)) ObjectIds[v] = id = ++NextObjectId;
+            return $"{v.TypeName}: 0x{id:x8}";
         }
         return v.ToString();
     }

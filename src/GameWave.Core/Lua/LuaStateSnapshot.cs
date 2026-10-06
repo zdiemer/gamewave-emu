@@ -39,6 +39,9 @@ internal sealed class LuaStateSnapshot
         {
             _destination.Globals = Table(_source.Globals);
             CopyThread(_source.MainThread, _destination.MainThread);
+            _destination.ObjectIds.Clear();
+            foreach (var pair in _source.ObjectIds) _destination.ObjectIds.Add(Value(pair.Key), pair.Value);
+            _destination.NextObjectId = _source.NextObjectId;
             _destination.CurrentThread = _destination.MainThread;
 
             if (normalizeNativeCall)
@@ -69,7 +72,7 @@ internal sealed class LuaStateSnapshot
             // A blocking host API (WaitForKey, Sleep, pause) may be where the game thread
             // notices a quicksave. It cannot be resumed in the middle of C# code, so retain
             // its arguments and make Lua execute the CALL again after a quickload.
-            while (thread.FrameCount > 0 && thread.Frames[thread.FrameCount - 1].Native is not null && thread.Frames[thread.FrameCount - 1].Protected == 0)
+            while (thread.FrameCount > 0 && thread.Frames[thread.FrameCount - 1].Native is not null && thread.Frames[thread.FrameCount - 1].Protected == 0 && thread.Frames[thread.FrameCount - 1].Continuation is null)
             {
                 var native = thread.Frames[--thread.FrameCount];
                 thread.Top = native.Top;
@@ -189,6 +192,7 @@ internal sealed class LuaStateSnapshot
                 to.Boundary = from.Boundary;
                 to.Protected = from.Protected;
                 to.ErrorHandler = Value(from.ErrorHandler);
+                to.Continuation = from.Continuation is null ? null : Table(from.Continuation);
             }
 
             copy.OpenUpvals.Clear();

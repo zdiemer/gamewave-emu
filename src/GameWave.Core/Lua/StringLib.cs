@@ -305,18 +305,35 @@ public static class StringLib
         int maxN = a.OptInt(4, src.Length + 1);
         bool anchor = p.Length > 0 && p[0] == '^';
         int pi = anchor ? 1 : 0;
-        int n = 0;
-        int si = 0;
-        var b = new StringBuilder();
+        var continuation = a.L.CurrentFrame!.Continuation ??= new LuaTable();
+        int n = continuation["count"].N;
+        int si = continuation["position"].N;
+        var b = new StringBuilder(continuation["text"].AsString ?? "");
         var ms = new MatchState(src, p, a.L);
-        while (n < maxN)
+        while (n < maxN || continuation["waiting"].IsTruthy)
         {
-            ms.Level = 0;
-            int e = ms.Match(si, pi);
-            if (e >= 0)
+            int e;
+            if (continuation["waiting"].IsTruthy)
             {
-                n++;
-                AddValue(ms, b, si, e, repl);
+                e = continuation["end"].N;
+                AddReplacementResult(b, src, si, e, a.L.CallbackResult);
+                continuation["waiting"] = false;
+            }
+            else
+            {
+                ms.Level = 0;
+                e = ms.Match(si, pi);
+                if (e >= 0)
+                {
+                    n++;
+                    try { a.L.Dispatch(() => { AddValue(ms, b, si, e, repl); return 0; }); }
+                    catch (PendingLuaCall call)
+                    {
+                        continuation["count"] = n; continuation["position"] = si;
+                        continuation["end"] = e; continuation["text"] = b.ToString(); continuation["waiting"] = true;
+                        return a.L.ScheduleCallback(call);
+                    }
+                }
             }
             if (e >= 0 && e > si)
                 si = e;
@@ -372,8 +389,13 @@ public static class StringLib
             var key = ms.GetCapture(0, s, e);
             result = L.State.Index(repl, key);
         }
+        AddReplacementResult(b, ms.Src, s, e, result);
+    }
+
+    static void AddReplacementResult(StringBuilder b, string source, int s, int e, LuaValue result)
+    {
         if (result.IsFalsy)
-            b.Append(ms.Src, s, e - s);
+            b.Append(source, s, e - s);
         else if (result.TryToStr(out var rs))
             b.Append(rs);
         else

@@ -22,6 +22,7 @@ internal sealed class CallFrame
     // Protected calls live on the Lua stack so a host snapshot needs no C# continuation.
     public int Protected;
     public LuaValue ErrorHandler;
+    public LuaTable? Continuation;
 }
 
 /// <summary>A Lua thread: the main thread or a coroutine, with its own stack and call frames.</summary>
@@ -50,6 +51,7 @@ public sealed partial class LuaThread
     internal int YieldFunc;
     internal int YieldWant;
     internal LuaValue[]? TransferValues;
+    internal bool CaptureCallback;
 
     internal LuaThread(LuaState state)
     {
@@ -94,6 +96,7 @@ public sealed partial class LuaThread
         f.Pc = 0;
         f.Protected = 0;
         f.ErrorHandler = LuaValue.Nil;
+        f.Continuation = null;
         return f;
     }
 
@@ -216,6 +219,7 @@ public sealed partial class LuaThread
                 return true;
             }
             int n = native.Fn(new LuaArgs(this, func + 1, Top - func - 1));
+            if (n == -1) return true; // Serializable native continuation scheduled a child.
             if (Yielding)
             {
                 // coroutine.yield: keep the values for Resume and leave the frame.
@@ -289,6 +293,7 @@ public sealed partial class LuaThread
     /// <summary>Calls a value with the given arguments and returns all results.</summary>
     public LuaValue[] Call(LuaValue fn, params ReadOnlySpan<LuaValue> args)
     {
+        if (CaptureCallback) throw new PendingLuaCall(fn, args.ToArray());
         int func = CallBase();
         EnsureStack(func + args.Length + 1);
         Stack[func] = fn;
@@ -307,6 +312,7 @@ public sealed partial class LuaThread
     /// <summary>Calls a value and returns just its first result.</summary>
     public LuaValue Call1(LuaValue fn, params ReadOnlySpan<LuaValue> args)
     {
+        if (CaptureCallback) throw new PendingLuaCall(fn, args.ToArray());
         int func = CallBase();
         EnsureStack(func + args.Length + 1);
         Stack[func] = fn;

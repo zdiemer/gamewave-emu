@@ -12,15 +12,23 @@ internal static class LuaStateBinary
         var graph = new Writer(writer, snapshot.Copy);
         graph.Reference(snapshot.Copy.MainThread);
         graph.Reference(snapshot.Copy.Globals);
+        writer.Write(snapshot.Copy.NextObjectId);
+        StateIO.Array(writer, snapshot.Copy.ObjectIds, pair => { graph.Value(pair.Key); writer.Write(pair.Value); });
     }
 
-    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state, int version = 2)
+    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state, int version = 3)
     {
         var graph = new Reader(reader, state, version);
         if (!ReferenceEquals(graph.Reference(), state.MainThread))
             throw new InvalidDataException("Missing main Lua thread.");
         state.Globals = (LuaTable)graph.Reference()!;
         state.CurrentThread = state.MainThread;
+        if (version >= 3)
+        {
+            state.NextObjectId = StateIO.Count(reader);
+            foreach (var pair in StateIO.Array(reader, () => (Value: graph.Value(), Id: StateIO.Count(reader))))
+                state.ObjectIds.Add(pair.Value, pair.Id);
+        }
         return new LuaStateSnapshot(state);
     }
 
@@ -80,6 +88,7 @@ internal static class LuaStateBinary
                         Reference(f.Closure); Reference(f.Native); w.Write(f.Func); w.Write(f.Base); w.Write(f.Top);
                         w.Write(f.Pc); w.Write(f.Want); w.Write(f.Boundary);
                         w.Write(f.Protected); Value(f.ErrorHandler);
+                        Reference(f.Continuation);
                     });
                     StateIO.Array(w, thread.OpenUpvals, Reference); w.Write((int)thread.Status); Reference(thread.StartFunction);
                     w.Write(thread.Started); w.Write(thread.ResumeContinuation); w.Write(thread.SkipInstructionBoundary); w.Write(thread.NativeDepth); w.Write(thread.Yielding);
@@ -171,6 +180,7 @@ internal static class LuaStateBinary
                         Boundary = r.ReadBoolean(),
                         Protected = version >= 2 ? StateIO.Count(r, 2) : 0,
                         ErrorHandler = version >= 2 ? Value() : LuaValue.Nil,
+                        Continuation = version >= 3 ? (LuaTable?)Reference() : null,
                     }, 800); thread.FrameCount = thread.Frames.Length;
                     foreach (var frame in thread.Frames)
                         if (frame.Func < 0 || frame.Base < 0 || frame.Top < 0 || frame.Top > stack.Length || (frame.Closure is { } cl && (frame.Pc < 0 || frame.Pc > cl.Proto.Code.Length)))

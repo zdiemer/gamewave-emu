@@ -10,6 +10,101 @@ namespace GameWave.Tests;
 
 public sealed class PortableStateTests : IDisposable
 {
+    [Theory]
+    [InlineData("sort")]
+    [InlineData("foreach")]
+    [InlineData("foreachi")]
+    [InlineData("gsub")]
+    [InlineData("index")]
+    [InlineData("newindex")]
+    [InlineData("add")]
+    [InlineData("concat")]
+    [InlineData("tostring")]
+    [InlineData("lt")]
+    [InlineData("le")]
+    [InlineData("iterator")]
+    public void BlockingNativeCallbacksRestoreWithoutRepeatingEffects(string operation)
+    {
+        var constants = new List<LuaValue>();
+        int K(LuaValue value) { constants.Add(value); return constants.Count - 1; }
+        var code = new List<uint>();
+        void Global(int register, string name) => code.Add(ABx(OpCode.GetGlobal, register, K(name)));
+        void Load(int register, LuaValue value) => code.Add(ABx(OpCode.LoadK, register, K(value)));
+        void Field(int register, int table, string name) => code.Add(ABC(OpCode.GetTable, register, table, Instr.MaxStack + K(name)));
+        var callback = new LuaProto
+        {
+            NumParams = 2, MaxStackSize = 6,
+            Constants = ["print", "entered", "time", "Sleep", 100, "replacement", 42],
+            Code = [ABx(OpCode.GetGlobal, 2, 0), ABx(OpCode.LoadK, 3, 1), ABC(OpCode.Call, 2, 2, 1),
+                ABx(OpCode.GetGlobal, 2, 2), ABC(OpCode.GetTable, 2, 2, Instr.MaxStack + 3),
+                ABx(OpCode.LoadK, 3, 4), ABC(OpCode.Call, 2, 2, 1)],
+        };
+        uint[] returns = operation switch
+        {
+            "foreach" or "foreachi" or "newindex" => [ABC(OpCode.Return, 0, 1, 0)],
+            "sort" or "lt" or "le" => [ABC(OpCode.LoadBool, 2, 1, 0), ABC(OpCode.Lt, 1, 0, 1),
+                ABx(OpCode.Jmp, 0, Instr.MaxArgSBx + 1), ABC(OpCode.LoadBool, 2, 0, 0), ABC(OpCode.Return, 2, 2, 0)],
+            "iterator" => [ABC(OpCode.Return, 2, 1, 0)],
+            "gsub" or "concat" or "tostring" => [ABx(OpCode.LoadK, 2, 5), ABC(OpCode.Return, 2, 2, 0)],
+            _ => [ABx(OpCode.LoadK, 2, 6), ABC(OpCode.Return, 2, 2, 0)],
+        };
+        if (operation is "lt" or "le") returns = [ABC(OpCode.LoadBool, 2, 1, 0), ABC(OpCode.Return, 2, 2, 0)];
+        callback.Code = [..callback.Code, ..returns];
+        if (operation is "sort" or "foreach" or "foreachi")
+        {
+            Global(0, "table"); Field(0, 0, operation);
+            code.Add(ABC(OpCode.NewTable, 1, 0, 0));
+            for (int i = 0; i < 6; i++) Load(i + 2, 6 - i);
+            code.Add(ABx(OpCode.SetList, 1, 5));
+            code.Add(ABx(OpCode.Closure, 2, 0)); code.Add(ABC(OpCode.Call, 0, 3, 2));
+        }
+        else if (operation == "gsub")
+        {
+            Global(0, "string"); Field(0, 0, "gsub"); Load(1, "abc"); Load(2, "(.)");
+            code.Add(ABx(OpCode.Closure, 3, 0)); code.Add(ABC(OpCode.Call, 0, 4, 2));
+        }
+        else if (operation == "iterator")
+        {
+            code.Add(ABx(OpCode.Closure, 0, 0)); code.Add(ABC(OpCode.LoadNil, 1, 2, 0));
+            code.Add(ABC(OpCode.TForLoop, 0, 0, 0)); code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx));
+        }
+        else
+        {
+            code.Add(ABC(OpCode.NewTable, 0, 0, 0)); code.Add(ABC(OpCode.NewTable, 1, 0, 0));
+            code.Add(ABx(OpCode.Closure, 2, 0));
+            string metamethod = operation is "tostring" ? "__tostring" : "__" + operation;
+            code.Add(ABC(OpCode.SetTable, 1, Instr.MaxStack + K(metamethod), 2));
+            Global(3, "setmetatable"); code.Add(ABC(OpCode.Move, 4, 0, 0)); code.Add(ABC(OpCode.Move, 5, 1, 0));
+            code.Add(ABC(OpCode.Call, 3, 3, 1));
+            switch (operation)
+            {
+                case "index": Field(0, 0, "missing"); break;
+                case "newindex": code.Add(ABC(OpCode.SetTable, 0, Instr.MaxStack + K("missing"), Instr.MaxStack + K(17))); break;
+                case "add": code.Add(ABC(OpCode.Add, 0, 0, 0)); break;
+                case "concat": code.Add(ABC(OpCode.Move, 1, 0, 0)); code.Add(ABC(OpCode.Concat, 0, 0, 1)); break;
+                case "tostring": Global(1, "tostring"); code.Add(ABC(OpCode.Move, 2, 0, 0)); code.Add(ABC(OpCode.Call, 1, 2, 2)); code.Add(ABC(OpCode.Move, 0, 1, 0)); break;
+                default: code.Add(ABC(operation == "lt" ? OpCode.Lt : OpCode.Le, 1, 0, 0)); code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx)); break;
+            }
+        }
+        Global(2, "print"); code.Add(ABC(OpCode.Move, 3, 0, 0)); code.Add(ABC(OpCode.Call, 2, 2, 1));
+        int loop = code.Count;
+        Global(0, "time"); Field(0, 0, "Sleep"); Load(1, 10000); code.Add(ABC(OpCode.Call, 0, 2, 1));
+        code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx + loop - code.Count - 1));
+        var main = new LuaProto { MaxStackSize = 10, Constants = constants.ToArray(), Protos = [callback], Code = code.ToArray() };
+        using var machine = Create(customProgram: main);
+        var lines = new List<string>(); machine.Log = lines.Add;
+        machine.RunFrame(.05);
+        byte[] saved = machine.SaveState(); lines.Clear();
+        machine.RunFrame(4);
+        Assert.Equal(MachineState.Running, machine.State);
+        byte[] expected = machine.SaveState(); var expectedLines = lines.ToArray();
+        lines.Clear(); machine.LoadState(saved, persistSaves: false); machine.RunFrame(4);
+        Assert.Equal(expected, machine.SaveState()); Assert.Equal(expectedLines, lines);
+        using var fresh = Create(customProgram: main); var freshLines = new List<string>(); fresh.Log = freshLines.Add;
+        fresh.LoadState(saved, persistSaves: false); fresh.RunFrame(4);
+        Assert.Equal(expected, fresh.SaveState()); Assert.Equal(expectedLines, freshLines);
+    }
+
     readonly string _root = Path.Combine(Path.GetTempPath(), "gamewave-state-" + Guid.NewGuid().ToString("N"));
     public void Dispose() => Directory.Delete(_root, true);
     static uint ABC(OpCode op, int a, int b, int c) => (uint)op | (uint)c << 6 | (uint)b << 15 | (uint)a << 24;

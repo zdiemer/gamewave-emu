@@ -5,6 +5,26 @@ namespace GameWave.Tests;
 /// <summary>Runs hand-assembled Lua 5.0 functions through the interpreter.</summary>
 public class LuaVmTests
 {
+    [Fact]
+    public void NativeContinuationsPreserveMultipleReturnValuesAndProtectedErrors()
+    {
+        var state = NewState();
+        var callback = new LuaProto { NumParams = 1, MaxStackSize = 2,
+            Code = [ABC(OpCode.Return, 0, 2, 0)] };
+        state.Globals["replace"] = state.Load(callback);
+        var main = new LuaProto { MaxStackSize = 5,
+            Constants = ["string", "gsub", "ab", "(.)", "replace"],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, K(1)),
+                ABx(OpCode.LoadK, 1, 2), ABx(OpCode.LoadK, 2, 3), ABx(OpCode.GetGlobal, 3, 4),
+                ABC(OpCode.Call, 0, 4, 0), ABC(OpCode.Return, 0, 0, 0)] };
+        Assert.Equal(new LuaValue[] { "ab", 2 }, Run(state, main));
+        var failing = new LuaProto { MaxStackSize = 2, Constants = ["error", "callback failed"],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.LoadK, 1, 1), ABC(OpCode.Call, 0, 2, 1), ABC(OpCode.Return, 0, 1, 0)] };
+        var protectedCall = state.MainThread.Call(state.Globals["pcall"], state.Globals["string"].AsTable!["gsub"], "a", ".", state.Load(failing));
+        Assert.False(protectedCall[0].IsTruthy);
+        Assert.Contains("callback failed", protectedCall[1].AsString);
+    }
+
     static uint ABC(OpCode op, int a, int b, int c) => (uint)op | (uint)c << 6 | (uint)b << 15 | (uint)a << 24;
     static uint ABx(OpCode op, int a, int bx) => (uint)op | (uint)bx << 6 | (uint)a << 24;
     static uint AsBx(OpCode op, int a, int sbx) => ABx(op, a, sbx + Instr.MaxArgSBx);

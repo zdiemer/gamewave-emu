@@ -139,11 +139,13 @@ Rollback restores queued input, remote repeat timing, graphics, decoder state,
 audio, and flash slots. The core sends a duplicate-frame notification when video
 output is disabled, keeping frontend frame accounting active.
 
-`pcall` and `xpcall`, including sleeping error handlers, retain their continuation
-in the Lua stack. Ordinary metamethod, sort, and iterator callbacks finish before
-an instruction-budget boundary. A callback that explicitly blocks in an engine
-API while its native caller still has a managed continuation remains unsupported;
-its save attempt fails, and a frontend may disable runahead. Rewind also cannot
+Protected calls, metamethods, sort comparisons, table iterators, generic-for
+iterators, and string replacement callbacks retain their continuation in the Lua
+stack, including callbacks that sleep or wait for input. Loading resumes the
+callback without repeating earlier comparisons, table mutations, or output.
+Lua object strings use saved deterministic identities across rollback and fresh
+instances. Portable state version 3 adds these continuations and still reads
+versions 1 and 2. Rewind cannot
 cross a host disc change. Save-state history belongs to the inserted disc.
 
 ## Remaining frontend features

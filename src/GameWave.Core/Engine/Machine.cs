@@ -317,8 +317,8 @@ public sealed partial class Machine : IDisposable
             {
                 if (StopPending)
                     throw new MachineStoppedException();
-                // Finish ordinary metamethod/sort/iterator callbacks before parking.
-                // Their C# callers keep locals that are not part of the Lua graph.
+                // Registered library callbacks use serializable continuations. Only
+                // external embedders' synchronous managed calls need to finish first.
                 if (L.ManagedCallDepth == 0)
                 {
                     _frameInstructions = 0;
