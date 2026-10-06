@@ -53,6 +53,15 @@ static uint64_t now_ms(void)
     return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
 #endif
 }
+static void compare_states(const unsigned char *expected, const unsigned char *actual, size_t size, const char *directory)
+{
+    if (memcmp(expected,actual,size) == 0) return;
+    char path[4096]; join_path(path,sizeof(path),directory,"expected.state");
+    FILE *file = fopen(path,"wb"); CHECK(file); CHECK(fwrite(expected,1,size,file)==size); fclose(file);
+    join_path(path,sizeof(path),directory,"actual.state"); file = fopen(path,"wb"); CHECK(file);
+    CHECK(fwrite(actual,1,size,file)==size); fclose(file);
+    CHECK(memcmp(expected,actual,size) == 0);
+}
 int main(int argc, char **argv)
 {
     CHECK(argc == 3 || argc == 4);
@@ -60,6 +69,8 @@ int main(int argc, char **argv)
     char disc[4096]; join_path(disc,sizeof(disc),argv[2],"disc");
     if (argc == 3) fixture(disc,false);
     library_t lib = open_library(argv[1]); CHECK(lib); load_api(lib);
+    void *(*memory)(unsigned); size_t (*memory_size)(unsigned);
+    LOAD(memory,"retro_get_memory_data"); LOAD(memory_size,"retro_get_memory_size");
     p_environment(deterministic_environment); p_video(deterministic_video); p_audio_batch(deterministic_audio);
     p_poll(poll); p_input(input); p_init();
     struct retro_game_info game = {argc == 4 ? argv[3] : disc,NULL,0,NULL}; CHECK(p_load(&game));
@@ -89,7 +100,7 @@ int main(int argc, char **argv)
                 exit(1);
             }
         }
-        CHECK(p_serialize(actual,size)); CHECK(memcmp(expected,actual,size) == 0);
+        CHECK(p_serialize(actual,size)); compare_states(expected,actual,size,argv[2]);
         state_context = 1; CHECK(p_unserialize(saved,size));
         /* Single-instance runahead: preserve one committed frame while showing its successor. */
         for (unsigned f = 0; f < 90; f++) {
@@ -109,13 +120,7 @@ int main(int argc, char **argv)
         buttons[5] = 0;
         av_enable = 3; state_context = 0;
         CHECK(p_serialize(actual,size));
-        if (memcmp(expected,actual,size) != 0) {
-            char path[4096]; join_path(path,sizeof(path),argv[2],"expected.state");
-            FILE *file = fopen(path,"wb"); CHECK(file); CHECK(fwrite(expected,1,size,file)==size); fclose(file);
-            join_path(path,sizeof(path),argv[2],"actual.state"); file = fopen(path,"wb"); CHECK(file);
-            CHECK(fwrite(actual,1,size,file)==size); fclose(file);
-            CHECK(memcmp(expected,actual,size) == 0);
-        }
+        compare_states(expected,actual,size,argv[2]);
         printf("PASS checkpoint=%u exact video/audio/state replay and speculative rollback\n",target); fflush(stdout);
         state_context = 1; CHECK(p_unserialize(saved,size)); state_context = 0;
         buttons[0] = 0; position = target;
@@ -145,6 +150,18 @@ int main(int argc, char **argv)
     }
     av_enable = 3; state_context = 0; buttons[5] = 0;
     puts("PASS: audio-enabled speculative frames do not write flash saves");
+    /* Netplay only supplies context during serialization. Its replay frames
+       disable output; neither disk saves nor exposed SRAM may follow rollback. */
+    state_context = 3; CHECK(p_serialize(saved,size)); state_context = 0;
+    uint64_t flash = save_hash(), sram = hash_bytes(memory(0),memory_size(0));
+    state_context = 3; CHECK(p_unserialize(saved,size)); state_context = 0;
+    buttons[5] = 1 << RETRO_DEVICE_ID_JOYPAD_B; av_enable = 0; p_run();
+    buttons[5] = 1 << RETRO_DEVICE_ID_JOYPAD_A; p_run();
+    CHECK(flash == save_hash() && sram == hash_bytes(memory(0),memory_size(0)));
+    state_context = 3; CHECK(p_unserialize(saved,size)); state_context = 0;
+    CHECK(flash == save_hash() && sram == hash_bytes(memory(0),memory_size(0)));
+    buttons[5] = 0; av_enable = 3; p_run(); CHECK(messages == 0);
+    puts("PASS: netplay replay keeps disk saves and frontend SRAM on committed frames");
     p_unload(); p_deinit(); close_library(lib); free(saved); free(expected); free(actual);
     puts("PASS: deterministic rewind and runahead"); return 0;
 }

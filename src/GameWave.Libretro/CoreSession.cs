@@ -30,6 +30,7 @@ sealed class CoreSession : IDisposable
     string? _loadedPath;
     bool _ejected;
     bool _speculative;
+    bool _netplay;
     public FrontendMemory Memory { get; } = new();
     readonly SortedDictionary<uint, CoreCheat> _cheats = new();
 
@@ -111,9 +112,11 @@ sealed class CoreSession : IDisposable
         _loadedPath = path;
     }
 
-    public void Run(bool hardDisableAudio = false)
+    public void Run(bool hardDisableAudio = false, bool outputDisabled = false)
     {
-        bool speculative = _speculative || hardDisableAudio;
+        // Netplay replay disables both A/V channels. Remember the state context:
+        // RetroArch only supplies it during serialize/unserialize, not retro_run.
+        bool speculative = _speculative || hardDisableAudio || (_netplay && outputDisabled);
         if (!speculative) ImportMemory();
         foreach (var pair in _cheats.ToArray())
         {
@@ -158,6 +161,7 @@ sealed class CoreSession : IDisposable
     public void Reset()
     {
         _speculative = false;
+        _netplay = false;
         Machine.Input.Clear();
         if (!Ejected)
             Machine.Reset();
@@ -185,6 +189,7 @@ sealed class CoreSession : IDisposable
 
     public void StateSaved(int context)
     {
+        _netplay = context == 3;
         if (context == 1)
         {
             if (!_speculative) { _saves.Flush(); Memory.Export(_saves); }
@@ -211,7 +216,10 @@ sealed class CoreSession : IDisposable
         Machine.LoadState(bytes.AsSpan((int)payload.Position), persistSaves);
         input.RestoreState(savedInput);
         _speculative = context == 2;
-        Memory.Export(_saves, force: true);
+        _netplay = context == 3;
+        // Keep frontend autosaves on the last presented frame during netplay replay.
+        // The next committed run exports the synchronized flash image.
+        if (!_netplay) Memory.Export(_saves, force: true);
     }
 
     public bool SetEject(bool eject)

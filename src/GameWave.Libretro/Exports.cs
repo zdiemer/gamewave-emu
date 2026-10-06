@@ -326,10 +326,10 @@ static unsafe class Exports
                                 buttons |= 1 << (int)id;
                     Input.Poll(port, buttons, session.Machine);
                 }
-                session.Run(hardDisableAudio: (av & 8) != 0);
+                session.Run(hardDisableAudio: (av & 8) != 0, outputDisabled: (av & 3) == 0);
             }
             else if (session.Ejected)
-                session.Run(hardDisableAudio: (av & 8) != 0);
+                session.Run(hardDisableAudio: (av & 8) != 0, outputDisabled: (av & 3) == 0);
             ShowMessages();
             fixed (uint* frame = session.Frame)
                 if (_video != null)
