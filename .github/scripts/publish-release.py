@@ -5,11 +5,38 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import time
+import zipfile
 
 
 API_VERSION = "X-GitHub-Api-Version: 2026-03-10"
 PLATFORMS = ("linux-x86_64", "linux-arm64", "macos-arm64", "macos-x86_64")
+
+
+def verify_archive(path):
+    if path.suffix == ".zip":
+        required = {"LICENSE", "libretro.md", "gamewave_libretro.dll", "gamewave_libretro.info"} if "libretro" in path.name else {"LICENSE", "README.md", "gamewave.exe", "SDL2.dll"}
+        with zipfile.ZipFile(path) as archive:
+            if archive.testzip() is not None or set(archive.namelist()) != required:
+                raise RuntimeError("Invalid Windows archive contents: " + path.name)
+    else:
+        root = path.name.removesuffix(".tar.gz")
+        core = "libretro" in root
+        mac = "macos" in root
+        required = {"LICENSE", "EXPERIMENTAL.txt"}
+        required |= {"libretro.md", "gamewave_libretro.info", "gamewave_libretro." + ("dylib" if mac else "so")} if core else {"README.md", "gamewave", "libSDL2-2.0." + ("dylib" if mac else "so")}
+        with tarfile.open(path, "r:gz") as archive:
+            members = archive.getmembers()
+            if any(not (member.isfile() or member.isdir()) for member in members):
+                raise RuntimeError("Unexpected archive member type: " + path.name)
+            if {member.name for member in members if member.isfile()} != {root + "/" + name for name in required}:
+                raise RuntimeError("Invalid experimental archive contents: " + path.name)
+            warning = archive.extractfile(root + "/EXPERIMENTAL.txt").read().decode()
+            if "EXPERIMENTAL PLATFORM BUILD" not in warning or "untested" not in warning:
+                raise RuntimeError("Missing experimental warning: " + path.name)
+            if not core and archive.getmember(root + "/gamewave").mode & 0o111:
+                raise RuntimeError("Standalone executable permissions missing: " + path.name)
 
 
 def api(endpoint, method="GET", data=None):
@@ -36,6 +63,7 @@ def prepare(directory, tag):
         raise RuntimeError("Missing or unexpected release archives: " + str(expected ^ {path.name for path in archives}))
     digests = {}
     for path in archives:
+        verify_archive(path)
         with path.open("rb") as stream:
             digests[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
     checksums = directory / "SHA256SUMS"

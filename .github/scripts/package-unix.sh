@@ -20,10 +20,10 @@ fi
 
 # These original fixtures exercise ABI and deterministic replay without a retail
 # disc or a frontend. They do not establish desktop/RetroArch compatibility.
-link_flags=()
-if [[ "$rid" == linux-* ]]; then link_flags+=(-ldl); fi
+compile_flags=(-std=c11 -Wall -Wextra -Werror -O2)
+if [[ "$rid" == linux-* ]]; then compile_flags+=(-ldl); fi
 for probe in smoke determinism features; do
-  cc -std=c11 -Wall -Wextra -Werror -O2 "tests/libretro/$probe.c" "${link_flags[@]}" -o "artifacts/libretro/$probe"
+  cc "${compile_flags[@]}" "tests/libretro/$probe.c" -o "artifacts/libretro/$probe"
   "artifacts/libretro/$probe" "$PWD/$core_out/$core" "$PWD/artifacts/libretro/$probe-data"
 done
 
