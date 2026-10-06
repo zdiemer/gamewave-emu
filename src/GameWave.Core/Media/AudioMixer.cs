@@ -101,11 +101,15 @@ public sealed class AudioMixer : IDisposable
     /// <summary>Seconds of output the device buffers, so video can be shown in step with what is heard.</summary>
     public double DeviceLatency { get; set; }
 
-    public AudioMixer(EmuClock clock)
+    public AudioMixer(EmuClock clock, bool externalDevice = false)
     {
         _clock = clock;
-        _virtualDevice = new Thread(VirtualDevice) { IsBackground = true, Name = "Game Wave audio clock" };
-        _virtualDevice.Start();
+        _externalDevice = externalDevice;
+        if (!externalDevice)
+        {
+            _virtualDevice = new Thread(VirtualDevice) { IsBackground = true, Name = "Game Wave audio clock" };
+            _virtualDevice.Start();
+        }
     }
 
     /// <summary>Set when a real audio device is pulling samples; the stand-in clock then stops.</summary>
@@ -357,5 +361,6 @@ public sealed class AudioMixer : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        _virtualDevice?.Join();
     }
 }

@@ -128,6 +128,21 @@ dotnet test
 The binary lands in `src/GameWave/bin/Release/net10.0/`. Pushing a `v*` tag that matches
 `<Version>` in `src/GameWave/GameWave.csproj` builds every platform and publishes a release.
 
+### Libretro / RetroArch
+
+A native libretro core is available alongside the standalone player:
+
+```sh
+dotnet publish src/GameWave.Libretro -c Release -r win-x64 -o artifacts/libretro/win-x64
+retroarch -L artifacts/libretro/win-x64/gamewave_libretro.dll "Some Disc.iso"
+```
+
+Building it needs the .NET Native AOT toolchain (on Windows, Visual Studio's
+Desktop development with C++ workload). The core itself needs no SDL2 or .NET
+installation. It supports six remotes, ISO/ZIP/extracted discs, M3U disc playlists,
+frontend Disk Control and persistent game saves. Libretro save states are unsupported.
+See [the libretro guide](docs/libretro.md) for installation, controls and build targets.
+
 ## Discs
 
 Point `gamewave` at a disc image (`.iso`), at a `.zip` holding one, or at a folder of a

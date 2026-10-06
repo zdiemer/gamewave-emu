@@ -154,6 +154,51 @@ public sealed class TrayTests : IDisposable
     }
 
     [Fact]
+    public void FrameDrivenMachineOnlyAdvancesWhenTheHostRunsFrames()
+    {
+        using var m = new Machine(MakeDisc("frames", BootThenIdle("frames")), new SaveStore(null), frameDriven: true);
+        var w = Watch(m);
+        m.Start();
+        Assert.Equal(0, m.Clock.Now);
+        Assert.Equal(0, Boots(w, "frames"));
+        for (int i = 0; i < 60; i++)
+            m.RunFrame(1.0 / 60);
+        Assert.Equal(1, Boots(w, "frames"));
+        Assert.InRange(m.Clock.NowSeconds, 0.999999, 1.000001);
+        long before = m.Clock.Now;
+        Thread.Sleep(30);
+        Assert.Equal(before, m.Clock.Now);
+        m.Reset();
+        m.RunFrame(1.0 / 60);
+        Assert.Equal(2, Boots(w, "frames"));
+    }
+
+    [Fact]
+    public void FrameDrivenBusyBytecodeYieldsAndStops()
+    {
+        var busy = new LuaProto { MaxStackSize = 1, Code = [AsBx(OpCode.Jmp, 0, -1)] };
+        using var m = new Machine(MakeDisc("busy", busy), new SaveStore(null), frameDriven: true);
+        m.Start();
+        m.RunFrame(1.0 / 60);
+        Assert.Equal(MachineState.Running, m.State);
+        m.Stop();
+        Assert.Equal(MachineState.Stopped, m.State);
+    }
+
+    [Fact]
+    public void FrameDrivenProgramCanOpenTrayAndChangeDisc()
+    {
+        using var m = new Machine(MakeDisc("frames-A", BootThenOpenTray("A")), new SaveStore(null), frameDriven: true);
+        m.Start();
+        m.RunFrame(1.0 / 60);
+        Assert.Equal(MachineState.TrayOpen, m.State);
+        m.ChangeDisc(MakeDisc("frames-B", BootThenIdle("B")));
+        m.RunFrame(1.0 / 60);
+        Assert.Equal(MachineState.Running, m.State);
+        Assert.Equal("frames-B", m.Title);
+    }
+
+    [Fact]
     public void GameOpeningTheTrayLeavesTheMachineWaitingForADisc()
     {
         using var m = new Machine(MakeDisc("A", BootThenOpenTray("A")), new SaveStore(null));

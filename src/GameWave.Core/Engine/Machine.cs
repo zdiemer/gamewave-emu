@@ -55,14 +55,31 @@ public sealed partial class Machine : IDisposable
     LuaState? _lua;
     EngineResources? _engineResources;
     int _pollCount;
+    readonly FrameStepper? _frames;
+    int _frameInstructions;
 
-    public Machine(IDisc disc, SaveStore saves)
+    public Machine(IDisc disc, SaveStore saves, bool frameDriven = false)
     {
         Disc = disc;
         Info = ReadInfo(disc);
         Saves = saves;
-        Audio = new AudioMixer(Clock);
+        Audio = new AudioMixer(Clock, externalDevice: frameDriven);
         Video = new VideoPlane(Audio);
+        if (frameDriven)
+        {
+            Clock.SetExternalTime(0);
+            _frames = new FrameStepper(Clock);
+        }
+    }
+
+    /// <summary>Runs a frame in a machine constructed with frameDriven enabled.</summary>
+    public void RunFrame(double seconds)
+    {
+        if (_frames is null)
+            throw new InvalidOperationException("This machine uses the wall clock.");
+        if (!double.IsFinite(seconds) || seconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(seconds));
+        _frames.Run(seconds);
     }
 
     static GameInfo ReadInfo(IDisc disc)
@@ -86,6 +103,8 @@ public sealed partial class Machine : IDisposable
             return;
         RequestFineTimer();
         _stopRequested = false;
+        _frames?.Begin();
+        _frameInstructions = _pollCount = 0;
         State = MachineState.Running;
         CrashMessage = null;
         _thread = new Thread(GameThread) { IsBackground = true, Name = "Game Wave game" };
@@ -122,6 +141,7 @@ public sealed partial class Machine : IDisposable
         if (t is null)
             return;
         _stopRequested = true;
+        _frames?.Cancel();
         CancelQuickRequest("The game stopped");
         Clock.Paused = false;
         Video.StopMovie(true);
@@ -175,6 +195,23 @@ public sealed partial class Machine : IDisposable
 
     void GameThread()
     {
+        try
+        {
+            _frames?.AdvanceTo(Clock.NowSeconds);
+            GameThreadLoop();
+        }
+        catch (MachineStoppedException)
+        {
+        }
+        finally
+        {
+            CancelQuickRequest("The game stopped");
+            _frames?.Finish();
+        }
+    }
+
+    void GameThreadLoop()
+    {
         while (true)
         {
             _resetRequested = false;
@@ -225,7 +262,6 @@ public sealed partial class Machine : IDisposable
             }
             break;
         }
-        CancelQuickRequest("The game stopped");
     }
 
     void RunGame()
@@ -234,7 +270,17 @@ public sealed partial class Machine : IDisposable
         var proto = ZbcLoader.Load(file.ReadAll(), Info.AppFile);
         var L = new LuaState { Output = s => Emit(s.TrimEnd('\n')) };
         _lua = L;
-        L.InstructionBoundary = () => ServiceQuickState(insideNativeCall: false);
+        L.InstructionBoundary = () =>
+        {
+            if (_frames is not null && ++_frameInstructions >= 10000)
+            {
+                _frameInstructions = 0;
+                if (StopPending)
+                    throw new MachineStoppedException();
+                _frames.AdvanceTo(Clock.NowSeconds + 0.001);
+            }
+            return ServiceQuickState(insideNativeCall: false);
+        };
         BaseLib.Open(L);
         StringLib.Open(L);
         RegisterApi(L);
@@ -310,7 +356,10 @@ public sealed partial class Machine : IDisposable
         if (++_pollCount >= 8)
         {
             _pollCount = 0;
-            Thread.Sleep(1);
+            if (_frames is null)
+                Thread.Sleep(1);
+            else
+                _frames.AdvanceTo(Clock.NowSeconds + 0.001);
         }
         WaitWhilePaused();
     }
@@ -327,6 +376,12 @@ public sealed partial class Machine : IDisposable
     internal void Sleep(int ms)
     {
         _pollCount = 0;
+        if (_frames is not null)
+        {
+            CheckStop();
+            _frames.AdvanceTo(Clock.NowSeconds + Math.Max(0, ms) / 1000.0);
+            return;
+        }
         long until = Clock.Now + Math.Max(0, ms);
         while (!Clock.WaitUntil(until, () => StopPending || _quickRequest is not null))
             CheckStop();

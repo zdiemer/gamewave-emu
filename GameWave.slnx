@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/GameWave.Core/GameWave.Core.csproj" />
     <Project Path="src/GameWave/GameWave.csproj" />
+    <Project Path="src/GameWave.Libretro/GameWave.Libretro.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GameWave.Core.Tests/GameWave.Core.Tests.csproj" />

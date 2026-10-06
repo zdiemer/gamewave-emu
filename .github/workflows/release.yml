@@ -71,6 +71,25 @@ jobs:
       - name: Test
         run: dotnet test -c Release
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+
+      - name: Package libretro (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish src/GameWave.Libretro -c Release -r win-x64 -o artifacts/libretro/win-x64
+          if ($LASTEXITCODE -ne 0) { throw "libretro publish failed" }
+          cl /nologo /std:c11 /W4 /WX /O2 tests/libretro/smoke.c /Fe:artifacts/libretro/smoke.exe /Fo:artifacts/libretro/smoke.obj
+          if ($LASTEXITCODE -ne 0) { throw "smoke test compilation failed" }
+          & artifacts/libretro/smoke.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/smoke-data"
+          if ($LASTEXITCODE -ne 0) { throw "libretro smoke test failed" }
+          New-Item -ItemType Directory -Force staging-libretro, dist | Out-Null
+          Copy-Item artifacts/libretro/win-x64/gamewave_libretro.dll, artifacts/libretro/win-x64/gamewave_libretro.info, docs/libretro.md, LICENSE staging-libretro/
+          Compress-Archive -Path staging-libretro/* -DestinationPath dist/gamewave-libretro-windows-x86_64.zip
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

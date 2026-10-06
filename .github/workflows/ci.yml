@@ -40,3 +40,39 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+
+      - name: Install native build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Publish and smoke-test libretro (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish src/GameWave.Libretro -c Release -r win-x64 -o artifacts/libretro/win-x64
+          if ($LASTEXITCODE -ne 0) { throw "libretro publish failed" }
+          cl /nologo /std:c11 /W4 /WX /O2 tests/libretro/smoke.c /Fe:artifacts/libretro/smoke.exe /Fo:artifacts/libretro/smoke.obj
+          if ($LASTEXITCODE -ne 0) { throw "smoke test compilation failed" }
+          & artifacts/libretro/smoke.exe "$PWD/artifacts/libretro/win-x64/gamewave_libretro.dll" "$PWD/artifacts/libretro/smoke-data"
+          if ($LASTEXITCODE -ne 0) { throw "libretro smoke test failed" }
+
+      - name: Publish and smoke-test libretro (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dotnet publish src/GameWave.Libretro -c Release -r linux-x64 -o artifacts/libretro/linux-x64
+          cc -std=c11 -Wall -Wextra -Werror -O2 tests/libretro/smoke.c -ldl -o artifacts/libretro/smoke
+          artifacts/libretro/smoke "$PWD/artifacts/libretro/linux-x64/gamewave_libretro.so" "$PWD/artifacts/libretro/smoke-data"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libretro-${{ matrix.os }}
+          path: |
+            artifacts/libretro/*/gamewave_libretro.dll
+            artifacts/libretro/*/gamewave_libretro.so
+            artifacts/libretro/*/gamewave_libretro.info
+          if-no-files-found: error

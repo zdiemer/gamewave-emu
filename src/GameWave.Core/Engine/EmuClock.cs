@@ -12,6 +12,13 @@ public sealed class EmuClock
     readonly object _gate = new();
     long _pausedAt = -1;
     long _pausedTotal;
+    double? _externalSeconds;
+
+    internal void SetExternalTime(double seconds)
+    {
+        lock (_gate)
+            _externalSeconds = seconds;
+    }
 
     /// <summary>Milliseconds since the machine started, not counting paused time.</summary>
     public long Now
@@ -20,6 +27,8 @@ public sealed class EmuClock
         {
             lock (_gate)
             {
+                if (_externalSeconds is { } seconds)
+                    return (long)(seconds * 1000);
                 long raw = _pausedAt >= 0 ? _pausedAt : _watch.ElapsedMilliseconds;
                 return raw - _pausedTotal;
             }
@@ -33,6 +42,8 @@ public sealed class EmuClock
         {
             lock (_gate)
             {
+                if (_externalSeconds is { } seconds)
+                    return seconds;
                 double raw = _pausedAt >= 0 ? _pausedAt / 1000.0 : _watch.Elapsed.TotalSeconds;
                 return raw - _pausedTotal / 1000.0;
             }

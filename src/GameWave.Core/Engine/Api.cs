@@ -587,7 +587,10 @@ public sealed partial class Machine
                     WaitWhilePaused();
                     if (Input.TryTake(out var e, Clock.Now))
                         return a.Return(e.Key, e.Remote, (int)e.Timestamp);
-                    Input.WaitForAny(20);
+                    if (_frames is null)
+                        Input.WaitForAny(20);
+                    else
+                        Sleep(1);
                 }
             }),
             ("EnableRemotes", a =>

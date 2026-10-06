@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>gamewave_libretro</AssemblyName>
+    <RootNamespace>GameWave.Libretro</RootNamespace>
+    <Version>0.1.0</Version>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../GameWave.Core/GameWave.Core.csproj" />
+    <None Include="gamewave_libretro.info" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
