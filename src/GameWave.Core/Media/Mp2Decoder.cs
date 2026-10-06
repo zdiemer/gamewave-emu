@@ -6,7 +6,7 @@ namespace GameWave.Media;
 /// Decodes an MPEG audio elementary stream (the movies carry MPEG-1 Layer II) fed in
 /// arbitrary pieces, producing interleaved stereo float samples.
 /// </summary>
-public sealed class Mp2Decoder
+public sealed partial class Mp2Decoder
 {
     readonly MpegFrameDecoder _decoder = new();
     byte[] _buf = new byte[16384];
@@ -14,6 +14,7 @@ public sealed class Mp2Decoder
     readonly float[] _out = new float[1152 * 2];
     readonly Queue<(int Offset, double Pts)> _ptsMarks = new();
     long _consumed;
+    readonly Queue<byte[]> _history = new();
 
     public int SampleRate { get; private set; } = 44100;
 
@@ -22,6 +23,7 @@ public sealed class Mp2Decoder
         _len = 0;
         _ptsMarks.Clear();
         _decoder.Reset();
+        _history.Clear();
     }
 
     /// <summary>
@@ -74,6 +76,9 @@ public sealed class Mp2Decoder
                 }
                 onFrame(_out, frames, framePts);
             }
+            _history.Enqueue(_buf.AsSpan(p, frame.FrameLength).ToArray());
+            int historyLimit = frame.Layer == MpegLayer.LayerIII ? 64 : 2;
+            while (_history.Count > historyLimit) _history.Dequeue();
             p += frame.FrameLength;
         }
         if (p > 0)

@@ -127,4 +127,25 @@ public class FormatTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void SpeculativeSavesStayInMemoryUntilCommitted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"gw-save-{Guid.NewGuid():N}.bin");
+        try
+        {
+            var store = new SaveStore(path);
+            store.Add(7, "Gemz", "TOP 10 SCORES", [1, 2, 3, 4]);
+            byte[] committed = File.ReadAllBytes(path);
+            store.WriteThrough = false;
+            store.Add(7, "Gemz", "TOP 10 SCORES", [8, 8, 8, 8]);
+            Assert.Equal(committed, File.ReadAllBytes(path));
+            store.RestoreSlots([new() { Id = 7, GameName = "Gemz", SlotName = "TOP 10 SCORES", Data = [1, 2, 3, 4] }], persist: false);
+            Assert.Equal(committed, File.ReadAllBytes(path));
+            store.Flush(); Assert.Equal(committed, File.ReadAllBytes(path));
+            store.Add(7, "Gemz", "TOP 10 SCORES", [5, 6, 7, 8]); store.Flush();
+            Assert.Equal(new byte[] { 5, 6, 7, 8 }, Assert.Single(new SaveStore(path).Slots).Data);
+        }
+        finally { File.Delete(path); }
+    }
 }

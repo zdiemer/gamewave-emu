@@ -52,7 +52,7 @@ static bool RETRO_CALLCONV environment(unsigned cmd, void *data)
     switch (cmd) {
         case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: CHECK(!*(bool *)data); return true;
         case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
-            CHECK(*(uint64_t *)data == RETRO_SERIALIZATION_QUIRK_INCOMPLETE); return true;
+            CHECK(*(uint64_t *)data == 0); return true;
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
             CHECK(*(enum retro_pixel_format *)data == RETRO_PIXEL_FORMAT_XRGB8888);
             return !reject_pixel;
@@ -159,7 +159,7 @@ static void fixture(const char *directory, bool opens_tray)
 
     const char *strings[] = {"gl", "LoadTexture", "test.zbm", NULL, "CreateOverlayFromTexture", "SetPosition",
         "audio", "Load", "test.zwf", "Play", NULL, "input", "WaitForKey", "eeprom", "SaveGameToNewSlot",
-        NULL, "Smoke", "Slot", "DATA", "time", "Sleep", NULL, "engine", "OpenTray", "SetVisibility"};
+        NULL, "Smoke", "Slot", "DATA", "time", "Sleep", NULL, "engine", "OpenTray", "SetVisibility", "string", "char"};
     code_count = 0;
     if (opens_tray) { method(22, 23); call(0, 0); abc(27, 0, 1, 0); }
     else {
@@ -172,6 +172,8 @@ static void fixture(const char *directory, bool opens_tray)
         unsigned loop = code_count;
         method(11, 12); call(0, 3); move(11, 0); move(12, 1);
         method(0, 5); move(1, 10); move(2, 11); move(3, 12); call(3, 0);
+        method(25, 26); move(1, 11); call(1, 1); move(13, 0);
+        method(13, 14); constant(1, 10); constant(2, 15); constant(3, 16); constant(4, 17); move(5, 13); call(5, 0);
         abx(20, 0, 131071 + loop - code_count - 1);
     }
     join_path(path, sizeof(path), directory, "game.zbc");
@@ -179,8 +181,8 @@ static void fixture(const char *directory, bool opens_tray)
     const unsigned char zbc[] = {0x1b,'Z','B','C',0x0a,0x1a,0x50,1,0,1,1,4,4,4,6,8,9,9,4};
     fwrite(zbc, 1, sizeof(zbc), f); put32(f, 31415926);
     put_string(f, "smoke"); put32(f, 0); fputc(0,f); fputc(0,f); fputc(0,f); fputc(16,f);
-    put32(f,0); put32(f,0); put32(f,0); put32(f,25);
-    for (unsigned i = 0; i < 25; i++) {
+    put32(f,0); put32(f,0); put32(f,0); put32(f,27);
+    for (unsigned i = 0; i < 27; i++) {
         if (strings[i]) { fputc(4,f); put_string(f,strings[i]); }
         else { fputc(3,f); put32(f, i == 3 ? 0 : i == 10 ? 1 : i == 15 ? 4 : 1000); }
     }
@@ -288,8 +290,12 @@ int main(int argc, char **argv)
     p_run(); CHECK(pixel_x == 2 && pixel_y == 6);
     p_reset(); p_run(); CHECK(pixel_x == 0 && pixel_y == 0);
     CHECK(p_unserialize(state,state_size)); p_run(); CHECK(pixel_x == 7 && pixel_y == 6);
-    CHECK(disk.set_eject_state(true)); CHECK(disk.set_image_index(1)); CHECK(disk.set_eject_state(false)); p_run();
+    CHECK(disk.set_eject_state(true)); CHECK(disk.set_image_index(1)); CHECK(disk.set_eject_state(false));
+    unsigned char *tray_state = (unsigned char *)malloc(state_size); CHECK(tray_state && p_serialize(tray_state,state_size));
+    p_run();
     CHECK(disk.get_eject_state()); /* The fixture opened its own tray. */
+    CHECK(p_unserialize(tray_state,state_size)); CHECK(!disk.get_eject_state());
+    p_run(); CHECK(disk.get_eject_state()); free(tray_state);
     CHECK(disk.set_image_index(0)); CHECK(disk.set_eject_state(false)); p_run(); CHECK(pixel_x == 0 && pixel_y == 0);
     CHECK(disk.set_eject_state(true)); CHECK(disk.add_image_index()); CHECK(disk.get_num_images() == 3);
     struct retro_game_info invalid_replacement = {NULL,NULL,0,NULL};

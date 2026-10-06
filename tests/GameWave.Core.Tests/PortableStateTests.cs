@@ -3,6 +3,8 @@ using GameWave.Engine;
 using GameWave.Graphics;
 using GameWave.Lua;
 using GameWave.Media;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 
 namespace GameWave.Tests;
 
@@ -158,21 +160,30 @@ public sealed class PortableStateTests : IDisposable
     {
         var body = new LuaProto
         {
-            MaxStackSize = 2, Constants = ["time", "Sleep", 1000],
+            MaxStackSize = 2,
+            Constants = ["time", "Sleep", 1000],
             Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1),
                 ABx(OpCode.LoadK, 1, 2), ABC(OpCode.Call, 0, 2, 1), ABC(OpCode.Return, 0, 1, 0)],
         };
         var main = new LuaProto
         {
-            MaxStackSize = 2, Constants = ["pcall"], Protos = [body],
+            MaxStackSize = 2,
+            Constants = ["pcall"],
+            Protos = [body],
             Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.Closure, 1, 0), ABC(OpCode.Call, 0, 2, 1),
                 ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 4)],
         };
         using var machine = Create(customProgram: main);
         byte[] initial = machine.SaveState();
         machine.RunFrame(.25);
-        Assert.Throws<InvalidOperationException>(() => machine.SaveState());
+        byte[] sleeping = machine.SaveState();
         machine.RunFrame(.25); Assert.Equal(.5, machine.Clock.NowSeconds);
+        byte[] expected = machine.SaveState();
+        machine.LoadState(sleeping, persistSaves: false);
+        machine.RunFrame(.25); Assert.Equal(expected, machine.SaveState());
+        machine.RunFrame(.8); expected = machine.SaveState();
+        machine.LoadState(sleeping, persistSaves: false);
+        machine.RunFrame(1.05); Assert.Equal(expected, machine.SaveState());
         machine.Stop(); machine.LoadState(initial);
         Assert.Equal(MachineState.Running, machine.State);
         Assert.Equal(0, machine.Clock.NowSeconds);
@@ -202,7 +213,8 @@ public sealed class PortableStateTests : IDisposable
     {
         var program = new LuaProto
         {
-            MaxStackSize = 2, Constants = ["input", "WaitForKey", "time", "Sleep", 1000, "print", "tick"],
+            MaxStackSize = 2,
+            Constants = ["input", "WaitForKey", "time", "Sleep", 1000, "print", "tick"],
             Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1), ABC(OpCode.Call, 0, 1, 1),
                 ABx(OpCode.GetGlobal, 0, 2), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 3), ABx(OpCode.LoadK, 1, 4), ABC(OpCode.Call, 0, 2, 1),
                 ABx(OpCode.GetGlobal, 0, 5), ABx(OpCode.LoadK, 1, 6), ABC(OpCode.Call, 0, 2, 1), ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 11)],
@@ -225,5 +237,166 @@ public sealed class PortableStateTests : IDisposable
         machine.RunFrame(1.0 / 60); machine.LoadState(saved); machine.RunFrame(1.0 / 60);
         Assert.Equal(MachineState.Running, machine.State);
         Assert.Null(machine.CrashMessage);
+    }
+
+    [Theory]
+    [InlineData("sleep")]
+    [InlineData("poll")]
+    [InlineData("instructions")]
+    [InlineData("key")]
+    public void ReplayingFramesRestoresExactExecutionAndInput(string boundary)
+    {
+        LuaProto program = boundary switch
+        {
+            "instructions" => new() { MaxStackSize = 1, Code = [ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 1)] },
+            "poll" or "key" => new()
+            {
+                MaxStackSize = 3,
+                Constants = ["input", boundary == "key" ? "WaitForKey" : "GetKey"],
+                Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1),
+                    ABC(OpCode.Call, 0, 1, 4), ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 4)],
+            },
+            _ => new()
+            {
+                MaxStackSize = 2,
+                Constants = ["time", "Sleep", 23],
+                Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1),
+                    ABx(OpCode.LoadK, 1, 2), ABC(OpCode.Call, 0, 2, 1), ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 5)],
+            },
+        };
+        using var machine = Create(customProgram: program);
+        for (int i = 0; i < 11; i++) machine.RunFrame(1.0 / 60);
+        byte[] saved = machine.SaveState();
+        byte[] Advance()
+        {
+            for (int i = 0; i < 17; i++)
+            {
+                if (i % 3 == 0) machine.Input.Push(RemoteKey.A, Remote.Blue, machine.Clock.Now);
+                machine.RunFrame(1.0 / 60);
+            }
+            Assert.Equal(MachineState.Running, machine.State);
+            return machine.SaveState();
+        }
+        byte[] expected = Advance();
+        machine.LoadState(saved, persistSaves: false);
+        Assert.Equal(expected, Advance());
+        machine.LoadState(saved, persistSaves: false);
+        Assert.Equal(expected, Advance());
+    }
+
+    [Fact]
+    public void RandomInputRepeatsAfterRestoration()
+    {
+        Directory.CreateDirectory(_root);
+        var input = new InputQueue { Mode = 1 };
+        input.SetRandomKeys([10, 11, 12, 13, 14]);
+        var initial = input.CaptureState();
+        KeyEvent[] Read() => Enumerable.Range(0, 100).Select(i =>
+        {
+            Assert.True(input.TryTake(out var key, i));
+            return key;
+        }).ToArray();
+        var expected = Read(); input.RestoreState(initial);
+        Assert.Equal(expected, Read());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MovieSnapshotsReplayPicturesPcmResamplingPauseAndLoopExactly(bool loop)
+    {
+        Directory.CreateDirectory(_root);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "fixtures", "movie.mpg"), Path.Combine(_root, "movie.mpg"));
+        using var machine = Create();
+        machine.Video.Movie.Load(machine.Disc.Find("/movie.mpg"));
+        machine.Video.Movie.Loop = loop; machine.Video.StartMovie();
+        var frame = new uint[Osd.Width * Osd.Height]; var pcm = new float[1470];
+        bool sawPicture = false, heardAudio = false;
+        byte[] Advance(int count)
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            for (int i = 0; i < count; i++)
+            {
+                if (i == 7) machine.Video.Movie.Pause();
+                if (i == 13) machine.Video.Movie.Resume();
+                machine.RunFrame(1.0 / 60); machine.Video.Movie.Pump();
+                machine.Audio.Mix(pcm); machine.RenderFrame(frame);
+                sawPicture |= frame.Any(pixel => pixel != 0xFF000000);
+                heardAudio |= pcm.Any(sample => sample != 0);
+                hash.AppendData(MemoryMarshal.AsBytes(frame.AsSpan()));
+                hash.AppendData(MemoryMarshal.AsBytes(pcm.AsSpan()));
+            }
+            return hash.GetHashAndReset();
+        }
+        foreach (int count in new[] { 7, 23, 61, 60 })
+        {
+            byte[] saved = machine.SaveState(); byte[] expected = Advance(count);
+            byte[] finalState = machine.SaveState();
+            machine.LoadState(saved, persistSaves: false);
+            Assert.Equal(saved, machine.SaveState());
+            Assert.Equal(expected, Advance(count));
+            Assert.Equal(finalState, machine.SaveState());
+        }
+        Assert.Equal(loop ? 1 : 0, machine.Video.Movie.State);
+        Assert.True(sawPicture); Assert.True(heardAudio);
+    }
+
+    [Fact]
+    public void StateResumesSleepingProtectedErrorHandlerAndReturnsItsResult()
+    {
+        var failed = new LuaProto
+        {
+            MaxStackSize = 3,
+            Constants = ["error", "boom", 0],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.LoadK, 1, 1), ABx(OpCode.LoadK, 2, 2), ABC(OpCode.Call, 0, 3, 1)],
+        };
+        var handler = new LuaProto
+        {
+            NumParams = 1,
+            MaxStackSize = 2,
+            Constants = ["time", "Sleep", 1000, "handled"],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1), ABx(OpCode.LoadK, 1, 2),
+                ABC(OpCode.Call, 0, 2, 1), ABx(OpCode.LoadK, 0, 3), ABC(OpCode.Return, 0, 2, 0)],
+        };
+        var main = new LuaProto
+        {
+            MaxStackSize = 3,
+            Constants = ["xpcall", "print"],
+            Protos = [failed, handler],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.Closure, 1, 0), ABx(OpCode.Closure, 2, 1), ABC(OpCode.Call, 0, 3, 3),
+                ABC(OpCode.Move, 2, 1, 0), ABC(OpCode.Move, 1, 0, 0), ABx(OpCode.GetGlobal, 0, 1), ABC(OpCode.Call, 0, 3, 1),
+                ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 9)],
+        };
+        using var machine = Create(customProgram: main); machine.RunFrame(.25);
+        byte[] saved = machine.SaveState(); var lines = new List<string>(); machine.Log = lines.Add;
+        machine.RunFrame(.8); Assert.Single(lines, "false\thandled"); byte[] expected = machine.SaveState();
+        lines.Clear(); machine.LoadState(saved, persistSaves: false); machine.RunFrame(.8);
+        Assert.Single(lines, "false\thandled"); Assert.Equal(expected, machine.SaveState());
+    }
+
+    [Fact]
+    public void FrameBudgetWaitsForOrdinaryNativeCallbacksToReturn()
+    {
+        var callback = new LuaProto
+        {
+            NumParams = 2,
+            MaxStackSize = 3,
+            Constants = [0, 20000, 1],
+            Code = [ABx(OpCode.LoadK, 0, 0), ABx(OpCode.LoadK, 1, 1), ABx(OpCode.LoadK, 2, 2),
+                ABx(OpCode.ForLoop, 0, Instr.MaxArgSBx - 1), ABC(OpCode.Return, 0, 1, 0)],
+        };
+        var main = new LuaProto
+        {
+            MaxStackSize = 3,
+            Constants = ["table", "foreach", 1],
+            Protos = [callback],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABC(OpCode.GetTable, 0, 0, Instr.MaxStack + 1), ABC(OpCode.NewTable, 1, 0, 0),
+                ABx(OpCode.LoadK, 2, 2), ABx(OpCode.SetList, 1, 0), ABx(OpCode.Closure, 2, 0), ABC(OpCode.Call, 0, 3, 1),
+                ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 8)],
+        };
+        using var machine = Create(customProgram: main); machine.RunFrame(1.0 / 60);
+        byte[] saved = machine.SaveState(); machine.RunFrame(1.0 / 60); byte[] expected = machine.SaveState();
+        machine.LoadState(saved, persistSaves: false); machine.RunFrame(1.0 / 60);
+        Assert.Equal(expected, machine.SaveState());
     }
 }

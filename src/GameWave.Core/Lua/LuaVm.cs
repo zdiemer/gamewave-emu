@@ -11,6 +11,19 @@ public sealed partial class LuaThread
         var S = State;
     newFrame:
         var f = Frames[FrameCount - 1];
+        if (f.Protected != 0)
+        {
+            int count = f.Protected == 2 ? 1 : Top - f.Base;
+            EnsureStack(f.Base + count + 1);
+            for (int j = count; j > 0; j--) Stack[f.Base + j] = Stack[f.Base + j - 1];
+            Stack[f.Base] = LuaValue.Bool(f.Protected == 1);
+            bool boundary = f.Boundary;
+            int want = f.Want;
+            PostCall(f.Base, count + 1);
+            if (boundary || FrameCount == 0) return;
+            if (want != MultRet) Top = Frames[FrameCount - 1].Top;
+            goto newFrame;
+        }
         var cl = f.Closure!;
         var p = cl.Proto;
         var k = p.Constants;
@@ -26,7 +39,9 @@ public sealed partial class LuaThread
                 // Branches change the local PC after decoding an instruction. Publish
                 // that next PC before a host boundary can capture the Lua stack.
                 f.Pc = pc;
-                if (S.InstructionBoundary?.Invoke() == true)
+                bool skipBoundary = SkipInstructionBoundary;
+                SkipInstructionBoundary = false;
+                if (!skipBoundary && S.InstructionBoundary?.Invoke() == true)
                     goto newFrame;
                 uint i = code[pc++];
                 f.Pc = pc;
@@ -263,9 +278,10 @@ public sealed partial class LuaThread
                         int want = f.Want;
                         bool boundary = f.Boundary;
                         FrameCount--;
+                        int enteredFrame = FrameCount;
                         if (PreCall(f.Func, want))
                         {
-                            Frames[FrameCount - 1].Boundary = boundary;
+                            Frames[enteredFrame].Boundary = boundary;
                             goto newFrame;
                         }
                         if (Yielding)
@@ -390,17 +406,14 @@ public sealed partial class LuaThread
                 }
             }
         }
-        catch (RuntimeError e)
+        catch (LuaException error)
         {
-            throw new LuaException(LuaValue.String($"{p.ShortSource}:{p.LineAt(f.Pc - 1)}: {e.Message}"))
-            {
-                LuaTraceback = Traceback(),
-            };
-        }
-        catch (LuaException e) when (e.LuaTraceback is null)
-        {
-            e.LuaTraceback = Traceback();
-            throw;
+            var e = error is RuntimeError
+                ? new LuaException(LuaValue.String($"{p.ShortSource}:{p.LineAt(f.Pc - 1)}: {error.Message}"))
+                : error;
+            e.LuaTraceback ??= Traceback();
+            if (HandleProtectedError(e)) goto newFrame;
+            throw e;
         }
         catch (GameWave.Engine.LuaStateRestoredException)
         {
@@ -408,5 +421,30 @@ public sealed partial class LuaThread
             // restored Lua frame; the saved graph has rewound that CALL instruction.
             goto newFrame;
         }
+    }
+
+    bool HandleProtectedError(LuaException error)
+    {
+        for (int i = FrameCount - 1; i >= 0; i--)
+        {
+            var frame = Frames[i];
+            if (frame.Protected != 0)
+            {
+                CloseUpvals(frame.Base);
+                FrameCount = i + 1;
+                bool callHandler = frame.Protected == 1 && frame.ErrorHandler.IsFunction;
+                frame.Protected = 2;
+                Stack[frame.Base] = error.Value; Top = frame.Base + 1;
+                if (callHandler)
+                {
+                    Stack[frame.Base] = frame.ErrorHandler; Push(error.Value);
+                    try { PreCall(frame.Base, 1); }
+                    catch (LuaException handlerError) { HandleProtectedError(handlerError); }
+                }
+                return true;
+            }
+            if (frame.Boundary) break;
+        }
+        return false;
     }
 }

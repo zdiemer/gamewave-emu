@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using GameWave.Disc;
+using GameWave.Engine;
 
 namespace GameWave.Media;
 
@@ -10,7 +11,7 @@ namespace GameWave.Media;
 /// </summary>
 public sealed class MoviePlayer : IDisposable
 {
-    internal sealed record Snapshot(DiscFile? File, bool Loop, bool Playing, bool Paused, double Time, Picture? Shown);
+    internal sealed record Snapshot(DiscFile? File, bool Loop, bool Playing, bool Paused, double Time, Picture? Shown, byte[]? Decoder = null);
     readonly AudioMixer _mixer;
     readonly object _gate = new();
 
@@ -32,8 +33,10 @@ public sealed class MoviePlayer : IDisposable
     double _shownUntil;
     double _endTime;
     double _seekTime;
+    readonly bool _frameDriven;
+    FrameMovieDecoder? _decoder;
 
-    public MoviePlayer(AudioMixer mixer) => _mixer = mixer;
+    public MoviePlayer(AudioMixer mixer, bool frameDriven = false) { _mixer = mixer; _frameDriven = frameDriven; }
 
     /// <summary>What <c>movie.GetState</c> reports: 1 while a movie is playing or paused, 0 otherwise.</summary>
     public int State => _playing ? 1 : 0;
@@ -86,6 +89,14 @@ public sealed class MoviePlayer : IDisposable
         _mixer.MovieBegin();
         if (time > 0)
             _mixer.SeekMovie(time);
+        if (_frameDriven)
+        {
+            _decoder = new FrameMovieDecoder(_file);
+            if (time > 0) _decoder.Pump(_mixer, _loop, QueuePicture, seek: time);
+            Pump();
+            _mixer.MovieClockRunning = true;
+            return;
+        }
         var file = _file;
         _thread = new Thread(() => DecodeThread(file)) { IsBackground = true, Name = "Game Wave movie" };
         _thread.Start();
@@ -119,8 +130,10 @@ public sealed class MoviePlayer : IDisposable
         if (t is not null && wait)
             t.Join(2000);
         _thread = null;
+        _decoder?.Dispose(); _decoder = null;
         lock (_gate)
         {
+            _returned.Clear();
             while (_frames.Count > 0)
                 _frames.Dequeue();
         }
@@ -131,7 +144,18 @@ public sealed class MoviePlayer : IDisposable
     internal Snapshot CaptureState()
     {
         lock (_gate)
-            return new(_file, _loop, _playing, _paused, _mixer.MovieTime, _shown?.Clone());
+        {
+            byte[]? bytes = null;
+            if (_decoder is not null)
+            {
+                using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
+                _decoder.WriteState(writer);
+                StateIO.Array(writer, _frames, f => { f.Pic.WriteState(writer); writer.Write(f.Time); writer.Write(f.Duration); });
+                writer.Write(_shownUntil); writer.Write(_endTime); writer.Write(_demuxDone);
+                bytes = stream.ToArray();
+            }
+            return new(_file, _loop, _playing, _paused, _mixer.MovieTime, _shown?.Clone(), bytes);
+        }
     }
 
     internal void RestoreState(Snapshot state)
@@ -139,6 +163,18 @@ public sealed class MoviePlayer : IDisposable
         Stop(true);
         _file = state.File;
         _loop = state.Loop;
+        if (_frameDriven && state.Decoder is not null && state.File is not null)
+        {
+            using var stream = new MemoryStream(state.Decoder, false); using var reader = new BinaryReader(stream);
+            _decoder = FrameMovieDecoder.ReadState(reader, state.File);
+            _frames.Clear();
+            foreach (var frame in StateIO.Array(reader, () => (Picture.ReadState(reader), reader.ReadDouble(), reader.ReadDouble()), 256)) _frames.Enqueue(frame);
+            _shownUntil = reader.ReadDouble(); _endTime = reader.ReadDouble(); _demuxDone = reader.ReadBoolean();
+            if (stream.Position != stream.Length) throw new InvalidDataException("Unexpected movie decoder data.");
+            _playingFile = state.File; _playing = state.Playing; _paused = state.Paused; _cancel = false;
+            _shown = state.Shown?.Clone();
+            return;
+        }
         if (!state.Playing || state.File is null)
         {
             lock (_gate)
@@ -160,6 +196,7 @@ public sealed class MoviePlayer : IDisposable
     /// </summary>
     public bool WithCurrentPicture(Action<Picture> use)
     {
+        Pump();
         double now = _mixer.MovieTime;
         lock (_gate)
         {
@@ -186,6 +223,18 @@ public sealed class MoviePlayer : IDisposable
                 return false;
             use(_shown);
             return true;
+        }
+    }
+
+    void QueuePicture(Picture picture, double time, double duration) => _frames.Enqueue((picture, time, duration));
+    public void Pump()
+    {
+        if (!_frameDriven || _decoder is null || !_playing || _paused) return;
+        lock (_gate)
+        {
+            while (_returned.TryDequeue(out var picture)) _decoder.Recycle(picture);
+            _decoder.Pump(_mixer, _loop, QueuePicture);
+            _demuxDone = _decoder.Done; _endTime = _decoder.LastEnd;
         }
     }
 
@@ -307,11 +356,13 @@ public sealed class MoviePlayer : IDisposable
     }
 
     /// <summary>Linear resampling of stereo frames to the mixer rate.</summary>
-    sealed class Resampler
+    internal sealed class Resampler
     {
         float[] _out = new float[4096];
         double _phase;
         float _lastL, _lastR;
+        internal void WriteState(BinaryWriter writer) { writer.Write(_phase); writer.Write(_lastL); writer.Write(_lastR); }
+        internal static Resampler ReadState(BinaryReader reader) => new() { _phase = reader.ReadDouble(), _lastL = reader.ReadSingle(), _lastR = reader.ReadSingle() };
 
         public (float[], int) Convert(float[] input, int frames, int rate)
         {

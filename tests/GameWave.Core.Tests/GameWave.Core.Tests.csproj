@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameWave.Core\GameWave.Core.csproj" />
+    <None Include="..\fixtures\movie.mpg" Link="fixtures/movie.mpg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

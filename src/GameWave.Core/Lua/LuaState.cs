@@ -15,6 +15,7 @@ public sealed class LuaState
     /// </summary>
     internal Func<bool>? InstructionBoundary { get; set; }
     internal Dictionary<string, LuaNative> NativeFunctions { get; } = new(StringComparer.Ordinal);
+    internal int ManagedCallDepth;
 
     /// <summary>Where <c>print</c> and the engine's log output go.</summary>
     public Action<string> Output { get; set; } = Console.WriteLine;

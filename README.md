@@ -140,7 +140,8 @@ retroarch -L artifacts/libretro/win-x64/gamewave_libretro.dll "Some Disc.iso"
 Building it needs the .NET Native AOT toolchain (on Windows, Visual Studio's
 Desktop development with C++ workload). The core itself needs no SDL2 or .NET
 installation. It supports six remotes, ISO/ZIP/extracted discs, M3U disc playlists,
-frontend Disk Control, persistent game saves, and portable libretro save states.
+frontend Disk Control, persistent game saves, portable libretro save states,
+rewind, and runahead.
 See [the libretro guide](docs/libretro.md) for installation, controls and build targets.
 
 ## Discs

@@ -14,7 +14,7 @@ sealed class CoreSession : IDisposable
     public const int AudioFrames = AudioMixer.SampleRate / 60;
     // Fixed for the entire content session, as required by libretro. State files carry
     // their compressed payload length; frontends can compress the zero-filled tail.
-    public const int StateSize = 64 << 20;
+    public const int StateSize = 16 << 20;
     public readonly uint[] Frame = new uint[Osd.Width * Osd.Height];
     public readonly float[] Mix = new float[AudioFrames * 2];
     public readonly short[] Pcm = new short[AudioFrames * 2];
@@ -27,6 +27,7 @@ sealed class CoreSession : IDisposable
     readonly Action<string> _log;
     string? _loadedPath;
     bool _ejected;
+    bool _speculative;
 
     public CoreSession(string content, string saveDirectory, Action<string> log)
     {
@@ -84,18 +85,26 @@ sealed class CoreSession : IDisposable
         _loadedPath = path;
     }
 
-    public void Run()
+    public void Run(bool hardDisableAudio = false)
     {
+        bool speculative = _speculative || hardDisableAudio;
+        // Runahead's first frame is committed even when A/V is disabled. Serialize
+        // marks the following frames speculative; loading rolls those writes back.
+        _saves.WriteThrough = false;
+        Machine.SuppressSideEffects = speculative;
         if (!Ejected)
             Machine.RunFrame(1 / Fps);
+        Machine.Video.Movie.Pump();
         Machine.Audio.Mix(Mix);
         for (int i = 0; i < Mix.Length; i++)
             Pcm[i] = (short)Math.Clamp((int)Math.Round(Mix[i] * 32768), short.MinValue, short.MaxValue);
         Machine.RenderFrame(Frame);
+        if (!speculative) _saves.Flush();
     }
 
     public void Reset()
     {
+        _speculative = false;
         Machine.Input.Clear();
         if (!Ejected)
             Machine.Reset();
@@ -120,14 +129,23 @@ sealed class CoreSession : IDisposable
         return result.ToArray();
     }
 
-    public void LoadState(ReadOnlySpan<byte> data, RetroInput input)
+    public void StateSaved(int context)
     {
-        if (Ejected) throw new InvalidOperationException("Insert a disc before loading a state.");
+        if (context == 1)
+        {
+            if (!_speculative) _saves.Flush();
+            _speculative = true;
+        }
+    }
+
+    public void LoadState(ReadOnlySpan<byte> data, RetroInput input, bool persistSaves = true, int context = 0)
+    {
+        if (_ejected) throw new InvalidOperationException("Insert a disc before loading a state.");
         using var stream = new MemoryStream(data.ToArray(), false);
         using var reader = new BinaryReader(stream);
         if (!reader.ReadBytes(8).AsSpan().SequenceEqual("GWRETRO1"u8)) throw new InvalidDataException("Unsupported core state format.");
         int length = reader.ReadInt32();
-        if (length < 1116 || length > StateSize - 44) throw new InvalidDataException("Invalid core state length.");
+        if (length < 1120 || length > (128 << 20) - 44) throw new InvalidDataException("Invalid core state length.");
         byte[] checksum = reader.ReadBytes(32), bytes = reader.ReadBytes(length);
         if (bytes.Length != length || !checksum.AsSpan().SequenceEqual(SHA256.HashData(bytes)))
             throw new InvalidDataException("The save state is truncated or damaged.");
@@ -136,9 +154,9 @@ sealed class CoreSession : IDisposable
         uint index = stateReader.ReadUInt32();
         if (index != ImageIndex) throw new InvalidDataException("Select the saved disc before loading this state.");
         var savedInput = RetroInput.ReadState(stateReader);
-        Machine.LoadState(bytes.AsSpan((int)payload.Position));
+        Machine.LoadState(bytes.AsSpan((int)payload.Position), persistSaves);
         input.RestoreState(savedInput);
-        Machine.RenderFrame(Frame);
+        _speculative = context == 2;
     }
 
     public bool SetEject(bool eject)

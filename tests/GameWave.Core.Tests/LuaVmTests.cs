@@ -166,6 +166,45 @@ public class LuaVmTests
     }
 
     [Fact]
+    public void ProtectedLuaCallsReturnAllValuesAndTransformErrors()
+    {
+        var state = NewState();
+        var body = new LuaProto
+        {
+            MaxStackSize = 2,
+            Constants = [17, "second"],
+            Code = [ABx(OpCode.LoadK, 0, 0), ABx(OpCode.LoadK, 1, 1), ABC(OpCode.Return, 0, 3, 0)],
+        };
+        var success = state.MainThread.Call(state.Globals["pcall"], state.Load(body));
+        Assert.Equal(new LuaValue[] { true, 17, "second" }, success);
+        var tail = new LuaProto
+        {
+            MaxStackSize = 2,
+            Constants = ["pcall"],
+            Protos = [body],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.Closure, 1, 0), ABC(OpCode.TailCall, 0, 2, 0)],
+        };
+        Assert.Equal(success, Run(state, tail));
+        var failed = new LuaProto
+        {
+            MaxStackSize = 3,
+            Constants = ["error", "boom", 0],
+            Code = [ABx(OpCode.GetGlobal, 0, 0), ABx(OpCode.LoadK, 1, 1), ABx(OpCode.LoadK, 2, 2), ABC(OpCode.Call, 0, 3, 1)],
+        };
+        var handler = new LuaProto
+        {
+            NumParams = 1,
+            MaxStackSize = 1,
+            Constants = ["handled"],
+            Code = [ABx(OpCode.LoadK, 0, 0), ABC(OpCode.Return, 0, 2, 0)],
+        };
+        Assert.Equal(new LuaValue[] { false, "handled" },
+            state.MainThread.Call(state.Globals["xpcall"], state.Load(failed), state.Load(handler)));
+        Assert.Equal(new LuaValue[] { false, "boom" },
+            state.MainThread.Call(state.Globals["xpcall"], state.Load(failed), state.Load(failed)));
+    }
+
+    [Fact]
     public void RuntimeErrorsCarryTheSourceLine()
     {
         var p = new LuaProto

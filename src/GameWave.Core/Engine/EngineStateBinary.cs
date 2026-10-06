@@ -18,13 +18,13 @@ public sealed partial class Machine
         {
             if (_sounds.TryGetValue(sound, out int id)) { w.Write(id); return; }
             id = _sounds.Count + 1; _sounds.Add(sound, id); w.Write(-id); StateIO.Text(w, sound.Name);
-            StateIO.Array(w, sound.Samples, w.Write);
+            StateIO.Numbers(w, sound.Samples);
         }
         public void Texture(Texture? texture)
         {
             w.Write(texture is not null); if (texture is null) return;
             w.Write(texture.Width); w.Write(texture.Height); StateIO.Text(w, texture.Name); w.Write(texture.AlphaLevel);
-            StateIO.Array(w, texture.Pixels, w.Write);
+            StateIO.Numbers(w, texture.Pixels);
         }
         public void Picture(Picture? picture)
         {
@@ -70,7 +70,7 @@ public sealed partial class Machine
             w.Write(state.Movie is not null);
             if (state.Movie is { } movie)
             {
-                StateIO.Array(w, movie.Ring, w.Write); w.Write(movie.Written); w.Write(movie.Played);
+                StateIO.Numbers(w, movie.Ring); w.Write(movie.Written); w.Write(movie.Played);
                 w.Write(movie.Active); w.Write(movie.ClockRunning);
             }
         }
@@ -82,7 +82,7 @@ public sealed partial class Machine
         public Sound ReadSound()
         {
             int id = r.ReadInt32(); if (id > 0) return _sounds.GetValueOrDefault(id) ?? throw new InvalidDataException("Invalid sound reference.");
-            string name = StateIO.Text(r); var sound = new Sound(StateIO.Array(r, r.ReadSingle, StateIO.MaxBytes / 4), name);
+            string name = StateIO.Text(r); var sound = new Sound(StateIO.Numbers<float>(r, StateIO.MaxBytes / 4), name);
             _sounds.Add(checked(-id), sound); return sound;
         }
         public Texture? Texture()
@@ -91,7 +91,7 @@ public sealed partial class Machine
             int width = StateIO.Count(r, 4096), height = StateIO.Count(r, 4096);
             if (width == 0 || height == 0) throw new InvalidDataException("Invalid texture size.");
             var texture = new Texture(width, height, StateIO.Text(r)) { AlphaLevel = r.ReadInt32() };
-            var pixels = StateIO.Array(r, r.ReadUInt32, 4096 * 4096);
+            var pixels = StateIO.Numbers<uint>(r, 4096 * 4096);
             if (pixels.Length != texture.Pixels.Length) throw new InvalidDataException("Invalid texture pixels.");
             pixels.CopyTo(texture.Pixels, 0); return texture;
         }
@@ -149,7 +149,7 @@ public sealed partial class Machine
             AudioMixer.MovieState? movie = null;
             if (r.ReadBoolean())
             {
-                var ring = StateIO.Array(r, r.ReadSingle, AudioMixer.SampleRate * 4);
+                var ring = StateIO.Numbers<float>(r, AudioMixer.SampleRate * 4);
                 if (ring.Length != AudioMixer.SampleRate * 4) throw new InvalidDataException("Invalid movie audio buffer.");
                 long written = r.ReadInt64(), played = r.ReadInt64();
                 if (played < 0 || written < 0 || written - played > AudioMixer.SampleRate * 2) throw new InvalidDataException("Invalid movie audio position.");

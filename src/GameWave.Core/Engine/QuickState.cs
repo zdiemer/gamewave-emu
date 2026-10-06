@@ -153,9 +153,9 @@ public sealed partial class Machine
         return restored;
     }
 
-    QuickState CaptureQuickState(LuaState lua) => new()
+    QuickState CaptureQuickState(LuaState lua, bool resumeBoundary = false) => new()
     {
-        Lua = LuaStateSnapshot.Capture(lua),
+        Lua = LuaStateSnapshot.Capture(lua, resumeBoundary),
         Api = CaptureApiState(),
         Osd = Osd.CaptureState(),
         Input = Input.CaptureState(),

@@ -1,7 +1,7 @@
 namespace GameWave.Media;
 
 /// <summary>A decoded 4:2:0 picture. Plane sizes are rounded up to whole macroblocks.</summary>
-public sealed class Picture
+public sealed partial class Picture
 {
     public readonly int Width;
     public readonly int Height;

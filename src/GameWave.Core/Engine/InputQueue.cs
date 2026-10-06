@@ -33,14 +33,21 @@ public readonly record struct KeyEvent(int Key, int Remote, long Timestamp);
 /// <summary>The engine's key queue, fed by the host and drained by <c>input.GetKey</c>.</summary>
 public sealed class InputQueue
 {
-    internal sealed record State(KeyEvent[] Events, int Capacity, int Mode, bool RemotesEnabled, int[] RandomKeys);
+    internal sealed record State(KeyEvent[] Events, int Capacity, int Mode, bool RemotesEnabled, int[] RandomKeys, uint RandomState = 1);
     public const int NoKey = 255;
     public const int NoRemote = 255;
 
     readonly Queue<KeyEvent> _queue = new();
     readonly object _gate = new();
     int _capacity = 16;
-    readonly Random _random = new();
+    uint _randomState = 1;
+    int NextRandom(int maximum)
+    {
+        uint value = _randomState;
+        value ^= value << 13; value ^= value >> 17; value ^= value << 5;
+        _randomState = value;
+        return (int)(value % (uint)maximum);
+    }
     int[] _randomKeys = [];
 
     /// <summary>0 normal; 1 "auto" mode, where the engine invents key presses for soak testing.</summary>
@@ -86,7 +93,7 @@ public sealed class InputQueue
     internal State CaptureState()
     {
         lock (_gate)
-            return new State(_queue.ToArray(), _capacity, Mode, RemotesEnabled, (int[])_randomKeys.Clone());
+            return new State(_queue.ToArray(), _capacity, Mode, RemotesEnabled, (int[])_randomKeys.Clone(), _randomState);
     }
 
     internal void RestoreState(State state)
@@ -100,6 +107,7 @@ public sealed class InputQueue
             Mode = state.Mode;
             RemotesEnabled = state.RemotesEnabled;
             _randomKeys = (int[])state.RandomKeys.Clone();
+            _randomState = state.RandomState == 0 ? 1 : state.RandomState;
             Monitor.PulseAll(_gate);
         }
     }
@@ -110,7 +118,7 @@ public sealed class InputQueue
         {
             if (Mode == 1 && _randomKeys.Length > 0 && _queue.Count == 0)
             {
-                e = new KeyEvent(_randomKeys[_random.Next(_randomKeys.Length)], _random.Next(1, 7), now);
+                e = new KeyEvent(_randomKeys[NextRandom(_randomKeys.Length)], NextRandom(6) + 1, now);
                 return true;
             }
             return _queue.TryDequeue(out e);

@@ -14,9 +14,9 @@ internal static class LuaStateBinary
         graph.Reference(snapshot.Copy.Globals);
     }
 
-    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state)
+    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state, int version = 2)
     {
-        var graph = new Reader(reader, state);
+        var graph = new Reader(reader, state, version);
         if (!ReferenceEquals(graph.Reference(), state.MainThread))
             throw new InvalidDataException("Missing main Lua thread.");
         state.Globals = (LuaTable)graph.Reference()!;
@@ -79,9 +79,10 @@ internal static class LuaStateBinary
                     {
                         Reference(f.Closure); Reference(f.Native); w.Write(f.Func); w.Write(f.Base); w.Write(f.Top);
                         w.Write(f.Pc); w.Write(f.Want); w.Write(f.Boundary);
+                        w.Write(f.Protected); Value(f.ErrorHandler);
                     });
                     StateIO.Array(w, thread.OpenUpvals, Reference); w.Write((int)thread.Status); Reference(thread.StartFunction);
-                    w.Write(thread.Started); w.Write(thread.ResumeContinuation); w.Write(thread.NativeDepth); w.Write(thread.Yielding);
+                    w.Write(thread.Started); w.Write(thread.ResumeContinuation); w.Write(thread.SkipInstructionBoundary); w.Write(thread.NativeDepth); w.Write(thread.Yielding);
                     w.Write(thread.YieldFunc); w.Write(thread.YieldWant); w.Write(thread.TransferValues is not null);
                     if (thread.TransferValues is { } transfers) StateIO.Array(w, transfers, Value); break;
                 case LuaProto proto:
@@ -96,7 +97,7 @@ internal static class LuaStateBinary
         }
     }
 
-    sealed class Reader(BinaryReader r, LuaState state)
+    sealed class Reader(BinaryReader r, LuaState state, int version)
     {
         readonly Dictionary<int, object> _ids = new();
         int _depth;
@@ -168,13 +169,16 @@ internal static class LuaStateBinary
                         Pc = r.ReadInt32(),
                         Want = r.ReadInt32(),
                         Boundary = r.ReadBoolean(),
+                        Protected = version >= 2 ? StateIO.Count(r, 2) : 0,
+                        ErrorHandler = version >= 2 ? Value() : LuaValue.Nil,
                     }, 800); thread.FrameCount = thread.Frames.Length;
                     foreach (var frame in thread.Frames)
                         if (frame.Func < 0 || frame.Base < 0 || frame.Top < 0 || frame.Top > stack.Length || (frame.Closure is { } cl && (frame.Pc < 0 || frame.Pc > cl.Proto.Code.Length)))
                             throw new InvalidDataException("Invalid Lua call frame.");
                     if (thread.Frames.Length == 0) thread.Frames = new CallFrame[16];
                     thread.OpenUpvals.AddRange(StateIO.Array(r, () => (UpVal)Reference()!)); thread.Status = (CoroutineStatus)r.ReadInt32();
-                    thread.StartFunction = (LuaFunction?)Reference(); thread.Started = r.ReadBoolean(); thread.ResumeContinuation = r.ReadBoolean(); thread.NativeDepth = r.ReadInt32();
+                    thread.StartFunction = (LuaFunction?)Reference(); thread.Started = r.ReadBoolean(); thread.ResumeContinuation = r.ReadBoolean();
+                    thread.SkipInstructionBoundary = version >= 2 && r.ReadBoolean(); thread.NativeDepth = r.ReadInt32();
                     thread.Yielding = r.ReadBoolean(); thread.YieldFunc = r.ReadInt32(); thread.YieldWant = r.ReadInt32();
                     thread.TransferValues = r.ReadBoolean() ? StateIO.Array(r, Value) : null; return thread;
                 case Kind.Proto:

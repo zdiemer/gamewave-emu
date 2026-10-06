@@ -17,6 +17,7 @@ out/
 *.mpg
 *.m2v
 !docs/**/*.png
+!tests/fixtures/movie.mpg
 
 # Agent worktrees
 .claude/worktrees/

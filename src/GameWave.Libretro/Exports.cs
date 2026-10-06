@@ -145,7 +145,7 @@ static unsafe class Exports
     [UnmanagedCallersOnly(EntryPoint = "retro_init", CallConvs = [typeof(CallConvCdecl)])]
     public static void Init()
     {
-        ulong quirks = 1; // INCOMPLETE: background movie decoding prevents frame-exact replay.
+        ulong quirks = 0;
         if (!Env(87, &quirks)) Env(44, &quirks); // Historical stable command number.
         try
         {
@@ -244,6 +244,8 @@ static unsafe class Exports
                 ReadOptions();
             if (_poll != null)
                 _poll();
+            uint av = 3;
+            Env(47 | 0x10000, &av);
             if (!_failed && !session.Ejected)
             {
                 for (uint port = 0; port < 6; port++)
@@ -255,19 +257,19 @@ static unsafe class Exports
                                 buttons |= 1 << (int)id;
                     Input.Poll(port, buttons, session.Machine);
                 }
-                session.Run();
+                session.Run(hardDisableAudio: (av & 8) != 0);
             }
             else if (session.Ejected)
-                session.Run();
+                session.Run(hardDisableAudio: (av & 8) != 0);
             ShowMessages();
             fixed (uint* frame = session.Frame)
                 if (_video != null)
-                    _video(frame, Osd.Width, Osd.Height, Osd.Width * sizeof(uint));
+                    _video((av & 1) != 0 ? frame : null, Osd.Width, Osd.Height, Osd.Width * sizeof(uint));
             fixed (short* pcm = session.Pcm)
             {
-                if (_audioBatch != null)
+                if ((av & 2) != 0 && _audioBatch != null)
                     _audioBatch(pcm, CoreSession.AudioFrames);
-                else if (_audio != null)
+                else if ((av & 2) != 0 && _audio != null)
                     for (int i = 0; i < CoreSession.AudioFrames; i++)
                         _audio(pcm[i * 2], pcm[i * 2 + 1]);
             }
@@ -340,10 +342,13 @@ static unsafe class Exports
         if (data == null || size < CoreSession.StateSize || size > int.MaxValue || _session is null) return 0;
         try
         {
+            int context = 0;
+            Env(72 | 0x10000, &context);
             byte[] state = _session.SaveState(Input);
             if (state.Length > CoreSession.StateSize) return 0;
             var destination = new Span<byte>(data, CoreSession.StateSize);
             destination.Clear(); state.CopyTo(destination);
+            _session.StateSaved(context);
             return 1;
         }
         catch (Exception error) { Error(error); return 0; }
@@ -351,10 +356,14 @@ static unsafe class Exports
     [UnmanagedCallersOnly(EntryPoint = "retro_unserialize", CallConvs = [typeof(CallConvCdecl)])]
     public static byte Unserialize(void* data, nuint size)
     {
-        if (data == null || size < 84 || size > CoreSession.StateSize || _session is null) return 0;
+        if (data == null || size < 84 || size > (128u << 20) || _session is null) return 0;
         try
         {
-            _session.LoadState(new ReadOnlySpan<byte>(data, (int)size), Input);
+            int context = 0;
+            uint av = 3;
+            bool hasContext = Env(72 | 0x10000, &context);
+            if (!hasContext) Env(47 | 0x10000, &av);
+            _session.LoadState(new ReadOnlySpan<byte>(data, (int)size), Input, persistSaves: context == 0 && (av & 4) == 0, context);
             _failed = false;
             return 1;
         }

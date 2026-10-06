@@ -220,7 +220,7 @@ public static class BaseLib
             ("yield", a =>
             {
                 var L = a.L;
-                if (L == a.State.MainThread || L.NativeDepth > 0)
+                if (L == a.State.MainThread || L.NativeDepth > 0 || L.Frames.Take(L.FrameCount).Any(f => f.Protected != 0))
                     throw new LuaException("attempt to yield across metamethod/C-call boundary");
                 L.Yielding = true;
                 // The arguments are already the top values of the stack.

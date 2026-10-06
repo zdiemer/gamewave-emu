@@ -20,13 +20,20 @@ public sealed class SaveStore
     readonly string? _path;
     readonly List<Slot> _slots = new();
     readonly object _gate = new();
+    bool _dirty;
+    byte[]? _persisted;
+    public bool WriteThrough { get; set; } = true;
+    public void Flush() { lock (_gate) if (_dirty) Save(force: true); }
 
     /// <summary>Opens a store backed by a file, or an in-memory one when the path is null.</summary>
     public SaveStore(string? path)
     {
         _path = path;
         if (path is not null && File.Exists(path))
-            Load(File.ReadAllBytes(path));
+        {
+            _persisted = File.ReadAllBytes(path);
+            Load(_persisted);
+        }
     }
 
     public IReadOnlyList<Slot> Slots
@@ -71,13 +78,14 @@ public sealed class SaveStore
         }
     }
 
-    internal void RestoreSlots(IEnumerable<Slot> slots)
+    internal void RestoreSlots(IEnumerable<Slot> slots, bool persist = true)
     {
         lock (_gate)
         {
             _slots.Clear();
             _slots.AddRange(slots);
-            Save();
+            _dirty = true;
+            if (persist) Save(force: true);
         }
     }
 
@@ -107,10 +115,15 @@ public sealed class SaveStore
         }
     }
 
-    void Save()
+    void Save(bool force = false)
     {
+        _dirty = true;
+        if (!force && !WriteThrough) return;
         if (_path is null)
+        {
+            _dirty = false;
             return;
+        }
         var ms = new MemoryStream();
         using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
         {
@@ -126,8 +139,16 @@ public sealed class SaveStore
             }
         }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
+        byte[] bytes = ms.ToArray();
+        if (_persisted is not null && bytes.AsSpan().SequenceEqual(_persisted))
+        {
+            _dirty = false;
+            return;
+        }
         string tmp = _path + ".tmp";
-        File.WriteAllBytes(tmp, ms.ToArray());
+        File.WriteAllBytes(tmp, bytes);
         File.Move(tmp, _path, true);
+        _persisted = bytes;
+        _dirty = false;
     }
 }

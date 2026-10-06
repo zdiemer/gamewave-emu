@@ -8,7 +8,7 @@ namespace GameWave.Media;
 /// field pictures, frame, field, 16x8 and dual-prime motion compensation. Elementary stream
 /// bytes go in with <see cref="Feed"/>; pictures come out in display order.
 /// </summary>
-public sealed class Mpeg2VideoDecoder
+public sealed partial class Mpeg2VideoDecoder
 {
     // ------------------------------------------------------------------ input buffering
 

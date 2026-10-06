@@ -12,10 +12,10 @@ internal sealed class LuaStateSnapshot
 
     internal LuaStateSnapshot(LuaState copy) => _copy = copy;
 
-    public static LuaStateSnapshot Capture(LuaState source)
+    public static LuaStateSnapshot Capture(LuaState source, bool resumeBoundary = false)
     {
         var copy = new LuaState();
-        new GraphCopier(source, copy).CopyState(normalizeNativeCall: true);
+        new GraphCopier(source, copy).CopyState(normalizeNativeCall: true, resumeBoundary);
         return new LuaStateSnapshot(copy);
     }
 
@@ -35,7 +35,7 @@ internal sealed class LuaStateSnapshot
             _objects[source.MainThread] = destination.MainThread;
         }
 
-        public void CopyState(bool normalizeNativeCall)
+        public void CopyState(bool normalizeNativeCall, bool resumeBoundary = false)
         {
             _destination.Globals = Table(_source.Globals);
             CopyThread(_source.MainThread, _destination.MainThread);
@@ -44,6 +44,13 @@ internal sealed class LuaStateSnapshot
             if (normalizeNativeCall)
             {
                 RewindNativeCalls(_destination.MainThread);
+                if (resumeBoundary)
+                {
+                    foreach (var pair in _objects)
+                        if (pair.Key is LuaThread from && pair.Value is LuaThread to &&
+                            (from == _source.CurrentThread || from.CurrentFrame?.Native is not null && from.Status == CoroutineStatus.Normal))
+                            to.SkipInstructionBoundary = true;
+                }
                 foreach (var pair in _objects.ToArray())
                     if (pair.Key is LuaThread from && pair.Value is LuaThread to
                         && from != _source.MainThread && from.Status is CoroutineStatus.Running or CoroutineStatus.Normal)
@@ -62,7 +69,7 @@ internal sealed class LuaStateSnapshot
             // A blocking host API (WaitForKey, Sleep, pause) may be where the game thread
             // notices a quicksave. It cannot be resumed in the middle of C# code, so retain
             // its arguments and make Lua execute the CALL again after a quickload.
-            while (thread.FrameCount > 0 && thread.Frames[thread.FrameCount - 1].Native is not null)
+            while (thread.FrameCount > 0 && thread.Frames[thread.FrameCount - 1].Native is not null && thread.Frames[thread.FrameCount - 1].Protected == 0)
             {
                 var native = thread.Frames[--thread.FrameCount];
                 thread.Top = native.Top;
@@ -180,6 +187,8 @@ internal sealed class LuaStateSnapshot
                 to.Pc = from.Pc;
                 to.Want = from.Want;
                 to.Boundary = from.Boundary;
+                to.Protected = from.Protected;
+                to.ErrorHandler = Value(from.ErrorHandler);
             }
 
             copy.OpenUpvals.Clear();
@@ -189,6 +198,7 @@ internal sealed class LuaStateSnapshot
             copy.StartFunction = source.StartFunction is null ? null : Function(source.StartFunction);
             copy.Started = source.Started;
             copy.ResumeContinuation = source.ResumeContinuation;
+            copy.SkipInstructionBoundary = source.SkipInstructionBoundary;
             copy.NativeDepth = source.NativeDepth;
             copy.Yielding = source.Yielding;
             copy.YieldFunc = source.YieldFunc;

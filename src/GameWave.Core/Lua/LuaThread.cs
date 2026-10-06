@@ -19,6 +19,9 @@ internal sealed class CallFrame
     public int Want;
     /// <summary>The Execute loop that entered this frame returns when it returns.</summary>
     public bool Boundary;
+    // Protected calls live on the Lua stack so a host snapshot needs no C# continuation.
+    public int Protected;
+    public LuaValue ErrorHandler;
 }
 
 /// <summary>A Lua thread: the main thread or a coroutine, with its own stack and call frames.</summary>
@@ -40,6 +43,7 @@ public sealed partial class LuaThread
     internal LuaFunction? StartFunction;
     internal bool Started;
     internal bool ResumeContinuation;
+    internal bool SkipInstructionBoundary;
     /// <summary>How many native-to-Lua call boundaries are live on this thread.</summary>
     internal int NativeDepth;
     internal bool Yielding;
@@ -88,6 +92,8 @@ public sealed partial class LuaThread
         f.Native = null;
         f.Boundary = false;
         f.Pc = 0;
+        f.Protected = 0;
+        f.ErrorHandler = LuaValue.Nil;
         return f;
     }
 
@@ -196,6 +202,19 @@ public sealed partial class LuaThread
             f.Base = func + 1;
             f.Top = Top;
             f.Want = want;
+            if (native.Name is "pcall" or "xpcall")
+            {
+                if (native.Name == "pcall") new LuaArgs(this, f.Base, Top - f.Base).Any(1);
+                f.Protected = 1;
+                if (native.Name == "xpcall")
+                {
+                    f.ErrorHandler = Top > f.Base + 1 ? Stack[f.Base + 1] : LuaValue.Nil;
+                    Top = f.Base + 1;
+                }
+                try { PreCall(f.Base, MultRet); }
+                catch (LuaException error) { HandleProtectedError(error); }
+                return true;
+            }
             int n = native.Fn(new LuaArgs(this, func + 1, Top - func - 1));
             if (Yielding)
             {
@@ -244,10 +263,12 @@ public sealed partial class LuaThread
     /// </summary>
     public void Call(int func, int want)
     {
+        int enteredFrame = FrameCount;
         if (PreCall(func, want))
         {
-            Frames[FrameCount - 1].Boundary = true;
+            Frames[enteredFrame].Boundary = true;
             NativeDepth++;
+            State.ManagedCallDepth++;
             try
             {
                 Execute();
@@ -255,6 +276,7 @@ public sealed partial class LuaThread
             finally
             {
                 NativeDepth--;
+                State.ManagedCallDepth--;
             }
         }
         else if (Yielding)
@@ -388,7 +410,7 @@ public sealed partial class LuaThread
                     Push(a);
                 if (PreCall(0, MultRet))
                 {
-                    Frames[FrameCount - 1].Boundary = true;
+                    Frames[0].Boundary = true;
                     Execute();
                 }
             }

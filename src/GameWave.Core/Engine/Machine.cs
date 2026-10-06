@@ -59,6 +59,11 @@ public sealed partial class Machine : IDisposable
     int _frameInstructions;
     bool _portableResume;
     double? _sleepUntil, _resumeSleepUntil;
+    enum FrameContinuation { Boot, Instruction, Poll, Sleep, WaitForKey }
+    FrameContinuation _frameContinuation;
+    double? _resumeUntil;
+    bool _skipPoll, _skipSleep;
+    public bool SuppressSideEffects { get; set; }
 
     public Machine(IDisc disc, SaveStore saves, bool frameDriven = false)
     {
@@ -66,7 +71,7 @@ public sealed partial class Machine : IDisposable
         Info = ReadInfo(disc);
         Saves = saves;
         Audio = new AudioMixer(Clock, externalDevice: frameDriven);
-        Video = new VideoPlane(Audio);
+        Video = new VideoPlane(Audio, frameDriven);
         if (frameDriven)
         {
             Clock.SetExternalTime(0);
@@ -109,6 +114,8 @@ public sealed partial class Machine : IDisposable
         _frameInstructions = _pollCount = 0;
         _sleepUntil = _resumeSleepUntil = null;
         _portableResume = false;
+        _resumeUntil = null; _skipPoll = _skipSleep = false;
+        _frameContinuation = FrameContinuation.Boot;
         State = MachineState.Running;
         CrashMessage = null;
         _thread = new Thread(GameThread) { IsBackground = true, Name = "Game Wave game" };
@@ -279,6 +286,12 @@ public sealed partial class Machine : IDisposable
         {
             _portableResume = false;
             L = _lua!;
+            if (_resumeUntil is { } until)
+            {
+                _frames!.AdvanceTo(until);
+                _resumeUntil = null;
+                _sleepUntil = null;
+            }
         }
         else
         {
@@ -302,10 +315,16 @@ public sealed partial class Machine : IDisposable
         {
             if (_frames is not null && ++_frameInstructions >= 10000)
             {
-                _frameInstructions = 0;
                 if (StopPending)
                     throw new MachineStoppedException();
-                _frames.AdvanceTo(Clock.NowSeconds + 0.001);
+                // Finish ordinary metamethod/sort/iterator callbacks before parking.
+                // Their C# callers keep locals that are not part of the Lua graph.
+                if (L.ManagedCallDepth == 0)
+                {
+                    _frameInstructions = 0;
+                    _frameContinuation = FrameContinuation.Instruction;
+                    _frames.AdvanceTo(Clock.NowSeconds + 0.001);
+                }
             }
             return ServiceQuickState(insideNativeCall: false);
         };
@@ -315,7 +334,7 @@ public sealed partial class Machine : IDisposable
         return L;
     }
 
-    internal void Emit(string message) => Log?.Invoke(message);
+    internal void Emit(string message) { if (!SuppressSideEffects) Log?.Invoke(message); }
 
     /// <summary>Throws out of the game thread when it has been asked to stop.</summary>
     internal void CheckStop()
@@ -379,6 +398,7 @@ public sealed partial class Machine : IDisposable
     /// </summary>
     internal void Poll()
     {
+        if (_skipPoll) { _skipPoll = false; CheckStop(); return; }
         CheckStop();
         if (++_pollCount >= 8)
         {
@@ -386,7 +406,10 @@ public sealed partial class Machine : IDisposable
             if (_frames is null)
                 Thread.Sleep(1);
             else
+            {
+                _frameContinuation = FrameContinuation.Poll;
                 _frames.AdvanceTo(Clock.NowSeconds + 0.001);
+            }
         }
         WaitWhilePaused();
     }
@@ -402,12 +425,15 @@ public sealed partial class Machine : IDisposable
 
     internal void Sleep(int ms)
     {
+        if (_skipSleep) { _skipSleep = false; CheckStop(); return; }
         _pollCount = 0;
         if (_frames is not null)
         {
             CheckStop();
             _sleepUntil = _resumeSleepUntil ?? Clock.NowSeconds + Math.Max(0, ms) / 1000.0;
             _resumeSleepUntil = null;
+            _frameContinuation = _lua?.CurrentThread.CurrentFrame?.Native?.Name == "input.WaitForKey"
+                ? FrameContinuation.WaitForKey : FrameContinuation.Sleep;
             _frames.AdvanceTo(_sleepUntil.Value);
             _sleepUntil = null;
             return;

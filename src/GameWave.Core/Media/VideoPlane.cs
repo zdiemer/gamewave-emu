@@ -38,9 +38,9 @@ public sealed class VideoPlane
 
     public DeinterlaceMode Deinterlace { get; set; } = DeinterlaceMode.Blend;
 
-    public VideoPlane(AudioMixer mixer)
+    public VideoPlane(AudioMixer mixer, bool frameDriven = false)
     {
-        Movie = new MoviePlayer(mixer);
+        Movie = new MoviePlayer(mixer, frameDriven);
     }
 
     public void ShowStill(Picture p)

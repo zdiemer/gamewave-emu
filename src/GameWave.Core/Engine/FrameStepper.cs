@@ -7,6 +7,7 @@ sealed class FrameStepper(EmuClock clock)
     double _end;
     bool _waiting, _finished, _cancelled;
     bool _restore;
+    public double Until { get; set; }
 
     public T AtBoundary<T>(Func<T> action, bool restore = false)
     {
@@ -64,6 +65,7 @@ sealed class FrameStepper(EmuClock clock)
     {
         lock (_gate)
         {
+            Until = until;
             while (true)
             {
                 if (_cancelled)
