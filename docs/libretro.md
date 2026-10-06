@@ -52,7 +52,9 @@ Supported content:
 For example, save this as `Rewind 2005.m3u` beside the two images:
 
 ```text
+#LABEL:Disc A
 Rewind 2005 (USA) (Disc A).iso
+#LABEL:Disc B
 Rewind 2005 (USA) (Disc B).iso
 ```
 
@@ -60,6 +62,9 @@ When a game asks for its other disc, use the frontend's **Disk Control** menu:
 eject if needed, select the other disc index, and insert it. Inserting the same
 disc boots it again. The core also supports adding and replacing disc entries
 through that menu. Selecting the index after the last entry leaves the drive empty.
+Modern frontends can display disc labels and full paths and remember the initial
+disc. Playlists accept `#LABEL:` and `#EXTINF:duration,label` before an entry;
+unlabelled entries use their file name. Older frontends retain the basic interface.
 
 ZIP images are unpacked synchronously during loading into
 `<save directory>/gamewave/unpacked/`; allow time and disk space for a DVD image.
@@ -96,6 +101,8 @@ Avoid binding a key both to the frontend's RetroPad and the core keyboard callba
 which can produce two presses.
 
 The **Deinterlacing** option selects `blend` (default) or `off`.
+Modern frontends group these options under **Video** and **Input**, with help text
+and value labels. Core options v1 and legacy frontends use the same keys and defaults.
 
 ## Saves and limits
 
@@ -105,6 +112,21 @@ game's named flash slots, including both discs of a set. It uses the standalone
 emulator's save format. Back up this file to preserve saves. When the frontend
 does not supply a save directory, the core uses the user's local application data
 directory under `gamewave-libretro`.
+
+The core also exposes a stable 4 MiB `RETRO_MEMORY_SAVE_RAM` image. RetroArch can
+load and save it as the content's `.srm` file, autosave it, edit it through its
+memory tools, and synchronize it when joining netplay. A frontend-loaded image
+replaces the console's flash slots before the next frame; an all-zero image clears
+them. Malformed images are rejected without changing the running game. Each image
+contains all console flash slots, while the frontend names its file per content.
+Back up both the `.srm` and `gamewave.saves` files when using both save mechanisms;
+a frontend restore takes precedence over the console file.
+
+The SRAM image begins with `GWSRAM1\0`, a little-endian 32-bit payload length,
+and four reserved zero bytes. At offset 16 is the standalone `GWSAVE1\0` save-store
+payload; the remaining buffer is zero padding. This is a flash container, not a
+hardware CPU address space. The memory-map interface describes this SRAM region
+with the `SRAM` address-space name and save-RAM flag.
 
 Use the frontend's **Save State** and **Load State** commands for portable snapshots.
 States restore Lua execution, graphics and animations, queued input and remote repeat
@@ -148,7 +170,54 @@ instances. Portable state version 4 also retains table tombstones so iterators
 can continue after clearing fields. It still reads versions 1, 2 and 3. Rewind cannot
 cross a host disc change. Save-state history belongs to the inserted disc.
 
-## Remaining frontend features
+## Cheats
+
+Enable codes through the frontend's core cheat interface:
+
+- `lua:global.field.1=123` sets an existing integer global or table entry, using
+  dot-separated field names and positive numeric table indices. Values are signed
+  decimal integers. For example, `lua:score=999` works if that game has a numeric
+  `score` global; names depend on each game's program.
+- `sram:HEX_OFFSET:8|16|32:HEX_VALUE` writes a little-endian value into the exposed
+  flash image. For example, `sram:0020:8:FF` writes one byte at hexadecimal offset
+  `20`. Find the intended slot data in that game's image first; container lengths
+  and names mean that slot offsets vary. Offsets below `10` (hex) are protected.
+  Changes that damage the save-store structure are rejected.
+
+Cheats apply at emulation boundaries and are reapplied while enabled. Codes can
+be replaced, disabled, or reset by index. Cheat configuration belongs to the
+frontend and is not stored in save states. These formats do not emulate hardware
+CPU patches or Game Genie codes.
+
+## Frontend I/O and logging
+
+With a complete VFS v3 interface, all disc, playlist, ZIP cache and console flash
+I/O goes through the frontend's filesystem. If that interface is unavailable, the
+core uses ordinary OS files. A path denied by an active VFS stays denied. ZIP cache
+identity uses archive-entry CRC and length when frontend file timestamps are
+unavailable, so replacing an archive invalidates stale extraction data.
+
+The libretro log callback receives informational game output and error messages.
+Worker output is queued and delivered on the frontend thread, with a fixed format
+string. Errors also appear through the frontend message interface.
+
+## Netplay
+
+The core supports frontend rollback netplay with synchronized RetroPad input,
+portable deterministic states, and initial SRAM synchronization. In RetroArch,
+load the same core build and identical disc content on each peer, use matching
+core options, then host or connect through the **Netplay** menu. Assign players
+to the six RetroPad ports and press SEL to join as usual. Keep cheats disabled
+and use RetroPad controls for multiplayer. Disc changes require coordinating all
+peers and starting a new session.
+
+Rollback frames keep disk saves and exposed SRAM at the last committed frame;
+the next presented frame exports the corrected flash data. Netplay state buffers
+and movie replay can use considerable memory and CPU. Windows x64 with RetroArch
+1.22.2 has been tested with two peers and added network latency. Compatibility
+between operating systems or CPU architectures still needs validation.
+
+## Frontend features
 
 | Feature | Status |
 |---|---|
@@ -157,7 +226,7 @@ cross a host disc change. Save-state history belongs to the inserted disc.
 | Cheats and memory maps | SRAM memory descriptor plus flash-offset and named Lua-integer cheats. The high-level engine has no hardware CPU RAM map. |
 | Core options v2 | Categorized English options with descriptions and labels; v1 and legacy fallback. |
 | VFS and log interfaces | VFS v3 for discs, playlists, ZIP cache and flash files; OS fallback when unavailable. Queued structured logs on the frontend thread, with error-message fallback. |
-| Netplay | No frontend validation yet; deterministic local replay alone does not establish netplay compatibility. |
+| Netplay | RetroArch host/client SRAM and state synchronization, delayed controller input, rollback, and frame CRC checks validated on Windows x64. |
 
 Rumble, analog controls, hardware rendering, and microphone input have no Game
 Wave device counterpart in the current emulator.
@@ -182,6 +251,8 @@ state bytes after replay and speculative rollback, walks saved history backwards
 and checks that speculative flash changes stay off disk. Zap 21 passes these
 checks during its intro movies and menu. Managed tests use an original MPEG test
 pattern to exercise resampling, pause, end of playback, and looping without a disc.
+They also restore blocking Lua callbacks into both the original machine and a
+fresh instance, preserving callback output, table traversal and state bytes.
 
 ```sh
 dotnet test -c Release
@@ -223,3 +294,27 @@ same flags as `smoke.c`, then run `determinism CORE OUTPUT_DIRECTORY [DISC]`.
 Omit `DISC` for its original fixture. CI and release builds run this probe in
 addition to the ABI smoke test. Supply your own retail disc to verify its movies
 and gameplay at the probe's checkpoints.
+
+`tests/libretro/features.c` exercises extended disk controls, all three core option
+interfaces, SRAM import/export, memory descriptors and cheat enable/disable/reset.
+Its fake VFS exposes paths that OS I/O cannot open, limits reads and writes to
+short chunks, and checks handle cleanup and save-file replacement. It also checks
+structured logging and fallback to older frontends. Compile and run it with the
+same flags and arguments as the ABI smoke test. CI runs it on Windows and Linux.
+
+`tests/libretro/netplay.py` launches two private RetroArch processes through a
+delayed loopback TCP proxy, sends changing network-gamepad input, and records the
+SRAM/state handshake, input frames, CRC packets and state requests in `wire.json`.
+It permits the initial join-state request and rejects later CRC resync requests.
+RetroArch's SDL2 audio and network-gamepad support are required; the probe uses
+dummy audio and null video/input drivers, without a public lobby. For example:
+
+```sh
+python tests/libretro/netplay.py --retroarch PATH/retroarch.exe --core artifacts/libretro/win-x64/gamewave_libretro.dll --content artifacts/libretro/determinism-data/disc/gamewave.diz --output artifacts/libretro/netplay-data --seconds 20 --delay-ms 80
+```
+
+Run the native determinism probe first to create that fixture, or supply your own
+disc as `--content`. Tests with 80 and 160 ms of delay in each direction validate
+SRAM synchronization and changing multiplayer input with frame CRC checks. A
+160-second Zap 21 session reaches the menu with 80 CRC packets and no gameplay
+resync requests. Other games and mixed-platform netplay require their own checks.

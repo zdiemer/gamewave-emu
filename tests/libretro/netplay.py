@@ -73,11 +73,10 @@ async def probe(args):
         except asyncio.IncompleteReadError:
             pass
         finally:
-            await queue.put((0, None))
-            try:
-                await sender
-            except (ConnectionError, OSError):
-                pass
+            # A disconnected peer can leave a full queue after its writer fails.
+            # Cancel the sender so teardown cannot wait forever on that queue.
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
 
     async def connection(client_reader, client_writer):
         task = asyncio.current_task()
@@ -163,7 +162,8 @@ async def probe(args):
         assert stats["host"]["0x0040"] >= 10, "Too few frame CRC checks"
         # RetroArch's achievement-enabled builds request a state when joining,
         # even with achievements disabled. Later requests indicate CRC failure.
-        assert len(state_requests) <= 1 and not any(request["crc_checks_sent"] > 0 for request in state_requests), "Client requested state resynchronization during play"
+        assert len(state_requests) <= 1 and all(request["direction"] == "client" and request["crc_checks_sent"] == 0
+                                              for request in state_requests), "Client requested state resynchronization during play"
         assert stats["host"]["0x0001"] == stats["client"]["0x0001"] == 0, "Protocol rejection"
         assert nonzero_inputs["host"] > 0 and nonzero_inputs["client"] > 0, "Network gamepad input did not reach both peers"
         for logfile in log_files:
