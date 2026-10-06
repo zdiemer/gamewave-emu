@@ -118,7 +118,7 @@ static unsafe class Exports
             var ptr = String(entry.Text);
             try
             {
-                if (_log != null) _log(entry.Level, LogFormat, ptr);
+                if (_log != null) LogToFrontend(entry.Level, ptr);
                 if (entry.Message)
                 {
                     var message = new RetroMessage { Text = ptr, Frames = 300 };
@@ -127,6 +127,20 @@ static unsafe class Exports
             }
             finally { Marshal.FreeCoTaskMem((nint)ptr); }
         }
+    }
+
+    static void LogToFrontend(int level, byte* text)
+    {
+        // Apple's ARM64 ABI puts every variadic argument on the stack. C# function
+        // pointers have fixed signatures: occupy x2-x7 so the string is passed in
+        // the first stack slot, as required by retro_log_printf_t's "%s" argument.
+        // https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms
+        if (OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+        {
+            var appleLog = (delegate* unmanaged[Cdecl]<int, byte*, nint, nint, nint, nint, nint, nint, byte*, void>)_log;
+            appleLog(level, LogFormat, 0, 0, 0, 0, 0, 0, text);
+        }
+        else _log(level, LogFormat, text);
     }
 
     static void Error(Exception error)
