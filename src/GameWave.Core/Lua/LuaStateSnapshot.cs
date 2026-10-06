@@ -99,8 +99,7 @@ internal sealed class LuaStateSnapshot
             var copy = new LuaTable();
             _objects[source] = copy;
             copy.Metatable = source.Metatable is null ? null : Table(source.Metatable);
-            foreach (var pair in source.Pairs())
-                copy.Set(Value(pair.Key), Value(pair.Value));
+            copy.CopyStorage(source, Value);
             BaseLib.CopyTableSize(source, copy);
             return copy;
         }

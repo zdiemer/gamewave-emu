@@ -144,8 +144,8 @@ iterators, and string replacement callbacks retain their continuation in the Lua
 stack, including callbacks that sleep or wait for input. Loading resumes the
 callback without repeating earlier comparisons, table mutations, or output.
 Lua object strings use saved deterministic identities across rollback and fresh
-instances. Portable state version 3 adds these continuations and still reads
-versions 1 and 2. Rewind cannot
+instances. Portable state version 4 also retains table tombstones so iterators
+can continue after clearing fields. It still reads versions 1, 2 and 3. Rewind cannot
 cross a host disc change. Save-state history belongs to the inserted disc.
 
 ## Remaining frontend features

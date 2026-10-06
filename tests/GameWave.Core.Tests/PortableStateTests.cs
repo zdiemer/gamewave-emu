@@ -11,6 +11,21 @@ namespace GameWave.Tests;
 public sealed class PortableStateTests : IDisposable
 {
     [Fact]
+    public void LuaBinaryRetainsClearedKeysForLiveNextIteratorsAndObjectStrings()
+    {
+        Directory.CreateDirectory(_root);
+        var lua = new LuaState(); BaseLib.Open(lua); StringLib.Open(lua);
+        var table = new LuaTable(); table["a"] = 1; table["b"] = 2; table["c"] = 3;
+        lua.Globals["table"] = table;
+        string identity = lua.ToStringMeta(table);
+        Assert.True(table.Next(LuaValue.Nil, out var first, out _)); Assert.Equal("a", first.AsString);
+        table["a"] = LuaValue.Nil;
+        var restored = RoundTrip(lua); var copy = restored.Globals["table"].AsTable!;
+        Assert.Equal(identity, restored.ToStringMeta(copy));
+        Assert.True(copy.Next(first, out var second, out var value)); Assert.Equal("b", second.AsString); Assert.Equal(2, value.N);
+        copy["b"] = LuaValue.Nil; Assert.True(copy.Next(second, out var third, out _)); Assert.Equal("c", third.AsString);
+    }
+    [Fact]
     public void IntegerCheatsApplyAtBoundaryAndSurviveStateRestoration()
     {
         var program = new LuaProto { MaxStackSize = 2, Constants = ["score", 1, "time", "Sleep", 100, "print"],

@@ -17,6 +17,26 @@ public sealed class LuaTable
     int _deadCount;
 
     public LuaTable? Metatable { get; set; }
+    internal sealed record Storage(LuaValue[] Array, int ArrayCount, LuaValue[] Keys, LuaValue[] Values, int Entries, int Dead);
+    internal Storage CaptureStorage() => new(_array, _arrayCount, _keys, _values, _entryCount, _deadCount);
+    internal void CopyStorage(LuaTable source, Func<LuaValue, LuaValue> copy)
+        => RestoreStorage(new(source._array.Select(copy).ToArray(), source._arrayCount,
+            source._keys.Select(copy).ToArray(), source._values.Select(copy).ToArray(), source._entryCount, source._deadCount));
+    internal void RestoreStorage(Storage storage)
+    {
+        if (storage.ArrayCount < 0 || storage.ArrayCount > storage.Array.Length || storage.Entries < 0 ||
+            storage.Entries > storage.Keys.Length || storage.Keys.Length != storage.Values.Length ||
+            storage.Dead != storage.Values.Take(storage.Entries).Count(v => v.IsNil))
+            throw new InvalidDataException("Invalid Lua table storage.");
+        _array = storage.Array; _arrayCount = storage.ArrayCount;
+        _keys = storage.Keys; _values = storage.Values; _entryCount = storage.Entries; _deadCount = storage.Dead;
+        _index.Clear();
+        for (int i = 0; i < _entryCount; i++)
+        {
+            if (!_keys[i].IsNil) _index.Add(_keys[i], i);
+            else if (!_values[i].IsNil) throw new InvalidDataException("Invalid Lua table key.");
+        }
+    }
 
     public LuaTable() { }
 

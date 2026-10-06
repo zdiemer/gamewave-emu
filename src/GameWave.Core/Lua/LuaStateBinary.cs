@@ -16,7 +16,7 @@ internal static class LuaStateBinary
         StateIO.Array(writer, snapshot.Copy.ObjectIds, pair => { graph.Value(pair.Key); writer.Write(pair.Value); });
     }
 
-    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state, int version = 3)
+    public static LuaStateSnapshot Read(BinaryReader reader, LuaState state, int version = 4)
     {
         var graph = new Reader(reader, state, version);
         if (!ReferenceEquals(graph.Reference(), state.MainThread))
@@ -57,7 +57,10 @@ internal static class LuaStateBinary
                 case LuaTable table:
                     w.Write((byte)Kind.Table); Reference(table.Metatable);
                     var size = BaseLib.SavedTableSize(table); w.Write(size.HasValue); if (size.HasValue) w.Write(size.Value);
-                    StateIO.Array(w, table.Pairs(), pair => { Value(pair.Key); Value(pair.Value); }); break;
+                    var storage = table.CaptureStorage();
+                    StateIO.Array(w, storage.Array, Value); w.Write(storage.ArrayCount);
+                    StateIO.Array(w, storage.Keys, Value); StateIO.Array(w, storage.Values, Value);
+                    w.Write(storage.Entries); w.Write(storage.Dead); break;
                 case LuaClosure closure:
                     w.Write((byte)Kind.Closure); Reference(closure.Proto); Reference(closure.Env);
                     StateIO.Array(w, closure.Upvalues, Reference); break;
@@ -138,7 +141,13 @@ internal static class LuaStateBinary
                 case Kind.Table:
                     var table = Register(new LuaTable()); table.Metatable = (LuaTable?)Reference();
                     if (r.ReadBoolean()) BaseLib.SetN(table, r.ReadInt32());
-                    int count = StateIO.Count(r); for (int i = 0; i < count; i++) { var key = Value(); table.Set(key, Value()); }
+                    if (version >= 4)
+                        table.RestoreStorage(new(StateIO.Array(r, Value), StateIO.Count(r), StateIO.Array(r, Value),
+                            StateIO.Array(r, Value), StateIO.Count(r), StateIO.Count(r)));
+                    else
+                    {
+                        int count = StateIO.Count(r); for (int i = 0; i < count; i++) { var key = Value(); table.Set(key, Value()); }
+                    }
                     return table;
                 case Kind.Closure:
                     var proto = (LuaProto)Reference()!; var closure = Register(new LuaClosure(proto, new LuaTable()));

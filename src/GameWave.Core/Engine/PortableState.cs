@@ -79,7 +79,7 @@ public sealed partial class Machine
             using var result = new MemoryStream();
             using (var w = new BinaryWriter(result, System.Text.Encoding.UTF8, true))
             {
-                w.Write("GWSTATE1"u8); w.Write(3); w.Write(bytes.Length); w.Write((int)payload.Length);
+                w.Write("GWSTATE1"u8); w.Write(4); w.Write(bytes.Length); w.Write((int)payload.Length);
                 w.Write(StateIdentity()); w.Write(SHA256.HashData(bytes)); w.Write(bytes);
             }
             return result.ToArray();
@@ -95,7 +95,7 @@ public sealed partial class Machine
         if (!reader.ReadBytes(8).AsSpan().SequenceEqual("GWSTATE1"u8))
             throw new InvalidDataException("Unsupported save-state format.");
         int version = reader.ReadInt32();
-        if (version is not (1 or 2 or 3)) throw new InvalidDataException("Unsupported save-state version.");
+        if (version is not (1 or 2 or 3 or 4)) throw new InvalidDataException("Unsupported save-state version.");
         int length = StateIO.Count(reader, StateIO.MaxBytes), rawLength = StateIO.Count(reader, StateIO.MaxBytes);
         if (!reader.ReadBytes(32).AsSpan().SequenceEqual(StateIdentity()))
             throw new InvalidDataException("The save state belongs to a different disc.");
