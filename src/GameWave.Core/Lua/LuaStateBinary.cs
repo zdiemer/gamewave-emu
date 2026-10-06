@@ -157,7 +157,10 @@ internal static class LuaStateBinary
                     upvalues.CopyTo(closure.Upvalues, 0); return closure;
                 case Kind.Native:
                     string name = StateIO.Text(r); LuaNative? target = null;
-                    var native = Register(new LuaNative(name, a => target!.Fn(a), clone => target!.CloneForSnapshot(clone)));
+                    // Internal VM operations have no mutable Lua environment. Use
+                    // the same function for restored and newly scheduled calls.
+                    var native = Register(name == "vm.operation" ? state.NativeFunctions[name] :
+                        new LuaNative(name, a => target!.Fn(a), clone => target!.CloneForSnapshot(clone)));
                     byte mode = r.ReadByte();
                     if (mode == 1) { var co = (LuaThread)Reference()!; target = BaseLib.WrapCoroutine(co); native.WrappedThread = co; }
                     else if (mode == 2)

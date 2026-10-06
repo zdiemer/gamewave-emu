@@ -39,6 +39,10 @@ internal sealed class LuaStateSnapshot
         {
             _destination.Globals = Table(_source.Globals);
             CopyThread(_source.MainThread, _destination.MainThread);
+            // The VM schedules future operations through this registry entry.
+            // Preserve its identity with operations already on the saved stack.
+            if (_source.NativeFunctions.TryGetValue("vm.operation", out var operation))
+                _destination.NativeFunctions["vm.operation"] = (LuaNative)Function(operation);
             _destination.ObjectIds.Clear();
             foreach (var pair in _source.ObjectIds) _destination.ObjectIds.Add(Value(pair.Key), pair.Value);
             _destination.NextObjectId = _source.NextObjectId;
@@ -182,7 +186,7 @@ internal sealed class LuaStateSnapshot
                 var from = source.Frames[i];
                 var to = copy.Frames[i] ??= new CallFrame();
                 to.Closure = from.Closure is null ? null : (LuaClosure)Function(from.Closure);
-                to.Native = from.Native;
+                to.Native = from.Native is null ? null : (LuaNative)Function(from.Native);
                 to.Func = from.Func;
                 to.Base = from.Base;
                 to.Top = from.Top;

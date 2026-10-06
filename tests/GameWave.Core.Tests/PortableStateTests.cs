@@ -11,6 +11,23 @@ namespace GameWave.Tests;
 public sealed class PortableStateTests : IDisposable
 {
     [Fact]
+    public void RepeatedVmOperationsKeepStateBytesIdenticalAcrossRestoration()
+    {
+        // Concat leaves its internal callback on an unused stack register. A later
+        // operation must share that identity after loading, as it did originally.
+        var program = new LuaProto { MaxStackSize = 4, Constants = ["one", "two", "time", "Sleep", 100],
+            Code = [ABx(OpCode.LoadK, 0, 0), ABx(OpCode.LoadK, 1, 1), ABC(OpCode.Concat, 0, 0, 1),
+                ABx(OpCode.GetGlobal, 2, 2), ABC(OpCode.GetTable, 2, 2, Instr.MaxStack + 3),
+                ABx(OpCode.LoadK, 3, 4), ABC(OpCode.Call, 2, 2, 1),
+                ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - 8)] };
+        using var machine = Create(customProgram: program); machine.RunFrame(.05);
+        byte[] saved = machine.SaveState(); machine.RunFrame(.101); byte[] expected = machine.SaveState();
+        machine.LoadState(saved, persistSaves: false); machine.RunFrame(.101);
+        Assert.Equal(expected, machine.SaveState());
+        using var fresh = Create(customProgram: program); fresh.LoadState(saved, persistSaves: false); fresh.RunFrame(.101);
+        Assert.Equal(expected, fresh.SaveState());
+    }
+    [Fact]
     public void LuaBinaryRetainsClearedKeysForLiveNextIteratorsAndObjectStrings()
     {
         Directory.CreateDirectory(_root);
@@ -119,8 +136,13 @@ public sealed class PortableStateTests : IDisposable
         }
         Global(2, "print"); code.Add(ABC(OpCode.Move, 3, 0, 0)); code.Add(ABC(OpCode.Call, 2, 2, 1));
         int loop = code.Count;
-        Global(0, "time"); Field(0, 0, "Sleep"); Load(1, 10000); code.Add(ABC(OpCode.Call, 0, 2, 1));
-        code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx + loop - code.Count - 1));
+        if (operation == "concat")
+            code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx - code.Count - 1));
+        else
+        {
+            Global(0, "time"); Field(0, 0, "Sleep"); Load(1, 10000); code.Add(ABC(OpCode.Call, 0, 2, 1));
+            code.Add(ABx(OpCode.Jmp, 0, Instr.MaxArgSBx + loop - code.Count - 1));
+        }
         var main = new LuaProto { MaxStackSize = 10, Constants = constants.ToArray(), Protos = [callback], Code = code.ToArray() };
         using var machine = Create(customProgram: main);
         var lines = new List<string>(); machine.Log = lines.Add;
